@@ -1,0 +1,6 @@
+@import "tailwindcss";
+@source "./**/*.php";
+@source "../../plugins/gigtune-core/**/*.php";
+@source "../../plugins/gigtune-core/**/*.js";
+@source inline("w-24 h-24 hidden absolute relative inset-0 overflow-hidden max-w-[320px] h-[320px] max-w-[540px] h-[180px] border border-2 border-dashed border-white/10 border-blue-400 border-purple-400 border-blue-400/80 border-purple-400/80 bg-black/30 bg-black/35 bg-black/40 bg-blue-400/10 bg-purple-400/10 cursor-move rounded rounded-lg rounded-xl rounded-2xl rounded-full z-20 z-30");
+@source inline("inline-flex flex items-center justify-center gap-2 w-full w-auto px-2 px-3 px-4 px-5 px-6 px-8 py-1 py-2 py-3 py-4 text-sm text-base font-medium font-semibold tracking-tight shadow shadow-lg bg-blue-600 bg-indigo-600 bg-purple-600 bg-emerald-600 bg-rose-600 bg-gradient-to-r from-blue-600 to-purple-600 from-indigo-600 to-purple-600 hover:opacity-90 hover:brightness-110 focus:outline-none focus:ring-2 focus:ring-white/20");

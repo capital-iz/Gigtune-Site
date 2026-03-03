@@ -1,0 +1,30 @@
+/** @type {import('tailwindcss').Config} */
+module.exports = {
+  content: [
+    "./**/*.php",
+    "./**/*.js",
+    "./**/*.css",
+    "../wp-content/plugins/gigtune-core/**/*.php",
+    "../plugins/gigtune-core/**/*.php",
+    "../../plugins/gigtune-core/**/*.php",
+  ],
+  safelist: [
+    "px-2","px-3","px-4","px-5","px-6","px-8",
+    "py-1","py-2","py-3","py-4",
+    "w-full","w-auto","inline-flex","flex","items-center","justify-center","gap-2",
+    "rounded","rounded-lg","rounded-xl","rounded-2xl","rounded-full",
+    "hidden","absolute","relative","inset-0","overflow-hidden",
+    "h-full","w-24","max-w-[320px]","h-[320px]","max-w-[540px]","h-[180px]",
+    "border-2","border-blue-400/80","border-purple-400/80","border-dashed",
+    "bg-black/35","bg-black/40","bg-blue-400/10","bg-purple-400/10",
+    "cursor-move","z-20","z-30",
+    "text-sm","text-base","font-medium","font-semibold","tracking-tight",
+    "border","border-white/10","shadow","shadow-lg",
+    "bg-blue-600","bg-indigo-600","bg-purple-600",
+    "bg-gradient-to-r","from-blue-600","to-purple-600","from-indigo-600","to-purple-600",
+    "hover:opacity-90","hover:brightness-110",
+    "focus:outline-none","focus:ring-2","focus:ring-white/20",
+  ],
+  theme: { extend: {} },
+  plugins: [],
+};

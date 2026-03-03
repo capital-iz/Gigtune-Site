@@ -1,0 +1,2 @@
+page-artist-profile.php
+page-artists.php

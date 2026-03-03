@@ -1,0 +1,330 @@
+[
+    {
+        "file":  "page-about-us.php",
+        "slug":  "about-us",
+        "path":  "/about-us/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-acceptable-use-policy.php",
+        "slug":  "acceptable-use-policy",
+        "path":  "/acceptable-use-policy/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-admin-maintenance.php",
+        "slug":  "admin-maintenance",
+        "path":  "/admin-maintenance/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-admin-test-page.php",
+        "slug":  "admin-test-page",
+        "path":  "/admin-test-page/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-artist-availability.php",
+        "slug":  "artist-availability",
+        "path":  "/artist-availability/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-artist-dashboard.php",
+        "slug":  "artist-dashboard",
+        "path":  "/artist-dashboard/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-artist-profile.php",
+        "slug":  "artist-profile",
+        "path":  "/artist-profile/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-artist-profile-edit.php",
+        "slug":  "artist-profile-edit",
+        "path":  "/artist-profile-edit/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-artists.php",
+        "slug":  "artists",
+        "path":  "/artists/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-book-an-artist.php",
+        "slug":  "book-an-artist",
+        "path":  "/book-an-artist/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-book-artist-form.php",
+        "slug":  "book-artist-form",
+        "path":  "/book-artist-form/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-browse-artists.php",
+        "slug":  "browse-artists",
+        "path":  "/browse-artists/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-browse-clients.php",
+        "slug":  "browse-clients",
+        "path":  "/browse-clients/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-cart.php",
+        "slug":  "cart",
+        "path":  "/cart/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-checkout.php",
+        "slug":  "checkout",
+        "path":  "/checkout/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-client-dashboard.php",
+        "slug":  "client-dashboard",
+        "path":  "/client-dashboard/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-client-profile.php",
+        "slug":  "client-profile",
+        "path":  "/client-profile/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-client-profile-edit.php",
+        "slug":  "client-profile-edit",
+        "path":  "/client-profile-edit/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-cookie-policy.php",
+        "slug":  "cookie-policy",
+        "path":  "/cookie-policy/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-how-it-works.php",
+        "slug":  "how-it-works",
+        "path":  "/how-it-works/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-join.php",
+        "slug":  "join",
+        "path":  "/join/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-kyc.php",
+        "slug":  "kyc",
+        "path":  "/kyc/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-kyc-status.php",
+        "slug":  "kyc-status",
+        "path":  "/kyc-status/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-login.php",
+        "slug":  "login",
+        "path":  "/login/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-logout.php",
+        "slug":  "logout",
+        "path":  "/logout/",
+        "status":  302,
+        "location":  "http://localhost",
+        "ok":  true
+    },
+    {
+        "file":  "page-messages.php",
+        "slug":  "messages",
+        "path":  "/messages/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-my-account-page.php",
+        "slug":  "my-account-page",
+        "path":  "/my-account-page/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-notifications.php",
+        "slug":  "notifications",
+        "path":  "/notifications/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-notifications-archive.php",
+        "slug":  "notifications-archive",
+        "path":  "/notifications-archive/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-notification-settings.php",
+        "slug":  "notification-settings",
+        "path":  "/notification-settings/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-posts-page.php",
+        "slug":  "posts-page",
+        "path":  "/posts-page/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-pricing.php",
+        "slug":  "pricing",
+        "path":  "/pricing/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-privacy-policy.php",
+        "slug":  "privacy-policy",
+        "path":  "/privacy-policy/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-public-profile.php",
+        "slug":  "public-profile",
+        "path":  "/public-profile/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-register.php",
+        "slug":  "register",
+        "path":  "/register/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-return-policy.php",
+        "slug":  "return-policy",
+        "path":  "/return-policy/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-security-centre.php",
+        "slug":  "security-centre",
+        "path":  "/security-centre/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-sign-in.php",
+        "slug":  "sign-in",
+        "path":  "/sign-in/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-support-contact.php",
+        "slug":  "support-contact",
+        "path":  "/support-contact/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-terms-and-conditions.php",
+        "slug":  "terms-and-conditions",
+        "path":  "/terms-and-conditions/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    },
+    {
+        "file":  "page-user.php",
+        "slug":  "user",
+        "path":  "/user/",
+        "status":  200,
+        "location":  "",
+        "ok":  true
+    }
+]

@@ -1,0 +1,543 @@
+/*
+Theme Name: GigTune Canon
+Author: GigTune
+Version: 1.0
+Text Domain: gigtune-canon
+*/
+
+input[type="date"],
+input[type="datetime-local"],
+input[type="time"] {
+  color-scheme: dark;
+}
+
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="datetime-local"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+  opacity: 0.8;
+}
+
+/* Navbar hover dropdown for Open Posts. */
+.gt-nav-group {
+  position: relative;
+}
+
+.gt-nav-dropdown {
+  position: absolute;
+  top: calc(100% + 0.5rem);
+  right: 0;
+  min-width: 160px;
+  background: rgba(15, 23, 42, 0.95);
+  border: 1px solid rgba(148, 163, 184, 0.2);
+  border-radius: 0.75rem;
+  padding: 0.25rem 0;
+  box-shadow: 0 12px 30px rgba(2, 6, 23, 0.35);
+  display: none;
+  z-index: 60;
+}
+
+.gt-nav-group:hover .gt-nav-dropdown,
+.gt-nav-group:focus-within .gt-nav-dropdown {
+  display: block;
+}
+
+/* Policy pages: elevate typography and layout to match site visuals. */
+body.page-acceptable-use-policy main,
+body.page-privacy-policy main,
+body.page-terms-and-conditions main,
+body.page-cookie-policy main,
+body.page-return-policy main,
+body.page-refund-policy main {
+  background: radial-gradient(1000px 600px at 15% -10%, rgba(59, 130, 246, 0.12), transparent 60%),
+    radial-gradient(900px 600px at 90% 10%, rgba(16, 185, 129, 0.1), transparent 60%);
+}
+
+body.page-acceptable-use-policy main article,
+body.page-privacy-policy main article,
+body.page-terms-and-conditions main article,
+body.page-cookie-policy main article,
+body.page-return-policy main article,
+body.page-refund-policy main article {
+  background: rgba(15, 23, 42, 0.6);
+  border: 1px solid rgba(148, 163, 184, 0.18);
+  border-radius: 1.5rem;
+  padding: 2.5rem;
+  width: 100%;
+  max-width: none;
+  box-shadow: 0 24px 60px rgba(2, 6, 23, 0.35);
+}
+
+body.page-acceptable-use-policy main .prose,
+body.page-privacy-policy main .prose,
+body.page-terms-and-conditions main .prose,
+body.page-cookie-policy main .prose,
+body.page-return-policy main .prose,
+body.page-refund-policy main .prose {
+  color: #cbd5f5;
+  font-size: 1.05rem;
+  line-height: 1.75;
+}
+
+body.page-acceptable-use-policy main .prose h1,
+body.page-privacy-policy main .prose h1,
+body.page-terms-and-conditions main .prose h1,
+body.page-cookie-policy main .prose h1,
+body.page-return-policy main .prose h1,
+body.page-refund-policy main .prose h1 {
+  font-size: clamp(2rem, 3vw, 2.75rem);
+  letter-spacing: -0.02em;
+}
+
+body.page-acceptable-use-policy main .prose h2,
+body.page-privacy-policy main .prose h2,
+body.page-terms-and-conditions main .prose h2,
+body.page-cookie-policy main .prose h2,
+body.page-return-policy main .prose h2,
+body.page-refund-policy main .prose h2 {
+  color: #e2e8f0;
+  font-size: 1.35rem;
+  margin-top: 2rem;
+}
+
+body.page-acceptable-use-policy main .prose h3,
+body.page-privacy-policy main .prose h3,
+body.page-terms-and-conditions main .prose h3,
+body.page-cookie-policy main .prose h3,
+body.page-return-policy main .prose h3,
+body.page-refund-policy main .prose h3 {
+  color: #e2e8f0;
+  font-size: 1.15rem;
+}
+
+body.page-acceptable-use-policy main .prose a,
+body.page-privacy-policy main .prose a,
+body.page-terms-and-conditions main .prose a,
+body.page-cookie-policy main .prose a,
+body.page-return-policy main .prose a,
+body.page-refund-policy main .prose a {
+  color: #7dd3fc;
+  text-decoration: none;
+  border-bottom: 1px solid rgba(125, 211, 252, 0.4);
+}
+
+body.page-acceptable-use-policy main .prose a:hover,
+body.page-privacy-policy main .prose a:hover,
+body.page-terms-and-conditions main .prose a:hover,
+body.page-cookie-policy main .prose a:hover,
+body.page-return-policy main .prose a:hover,
+body.page-refund-policy main .prose a:hover {
+  color: #bae6fd;
+  border-bottom-color: rgba(186, 230, 253, 0.7);
+}
+
+body.page-acceptable-use-policy main .prose ul,
+body.page-privacy-policy main .prose ul,
+body.page-terms-and-conditions main .prose ul,
+body.page-cookie-policy main .prose ul,
+body.page-return-policy main .prose ul,
+body.page-refund-policy main .prose ul,
+body.page-acceptable-use-policy main .prose ol,
+body.page-privacy-policy main .prose ol,
+body.page-terms-and-conditions main .prose ol,
+body.page-cookie-policy main .prose ol,
+body.page-return-policy main .prose ol,
+body.page-refund-policy main .prose ol {
+  padding-left: 1.5rem;
+}
+
+body.page-acceptable-use-policy main .prose blockquote,
+body.page-privacy-policy main .prose blockquote,
+body.page-terms-and-conditions main .prose blockquote,
+body.page-cookie-policy main .prose blockquote,
+body.page-return-policy main .prose blockquote,
+body.page-refund-policy main .prose blockquote {
+  border-left: 3px solid rgba(148, 163, 184, 0.5);
+  padding-left: 1rem;
+  color: #94a3b8;
+}
+
+/* Policy readability: bold numbered headings and stronger section separation. */
+.gt-policy-prose h2 {
+  font-size: clamp(1.25rem, 2vw, 1.55rem);
+  font-weight: 700;
+  line-height: 1.35;
+  margin-top: 2rem;
+  margin-bottom: 0.95rem;
+  padding: 0.85rem 1rem;
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  border-left: 4px solid rgba(96, 165, 250, 0.75);
+  border-radius: 0.75rem;
+  background: rgba(15, 23, 42, 0.45);
+  scroll-margin-top: 100px;
+}
+
+.gt-policy-prose h3 {
+  font-size: clamp(1.08rem, 1.5vw, 1.2rem);
+  font-weight: 700;
+  line-height: 1.4;
+  margin-top: 1.4rem;
+  margin-bottom: 0.7rem;
+  color: #e2e8f0;
+  scroll-margin-top: 100px;
+}
+
+.gt-policy-prose p,
+.gt-policy-prose ul,
+.gt-policy-prose ol,
+.gt-policy-prose blockquote {
+  margin-top: 0.7rem;
+  margin-bottom: 0.9rem;
+}
+
+.gt-policy-prose li + li {
+  margin-top: 0.35rem;
+}
+
+@media (max-width: 640px) {
+  body.page-acceptable-use-policy main article,
+  body.page-privacy-policy main article,
+  body.page-terms-and-conditions main article,
+  body.page-cookie-policy main article,
+  body.page-return-policy main article,
+  body.page-refund-policy main article {
+    padding: 1.75rem;
+  }
+}
+
+/* Dashboard layout for logged-in front page. */
+.gt-dashboard-layout {
+  position: relative;
+  max-width: 100%;
+}
+
+.gt-dashboard-content {
+  width: 100%;
+  max-width: 100%;
+}
+
+@media (max-width: 1023px) {
+  html,
+  body {
+    overflow-x: hidden;
+  }
+
+  .gt-dashboard-toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.55rem 0.9rem;
+    border-radius: 999px;
+    border: 1px solid rgba(148, 163, 184, 0.3);
+    background: rgba(15, 23, 42, 0.7);
+    color: #e2e8f0;
+    margin-bottom: 1.25rem;
+  }
+
+  .gt-dashboard-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(2, 6, 23, 0.55);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+    z-index: 40;
+  }
+
+  .gt-dashboard-drawer {
+    position: fixed;
+    top: 80px;
+    left: 16px;
+    right: 16px;
+    max-width: calc(100% - 32px);
+    transform: translateY(-20px);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease, transform 0.2s ease;
+    z-index: 50;
+  }
+
+  .gt-dashboard-layout.gt-dashboard-open .gt-dashboard-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .gt-dashboard-layout.gt-dashboard-open .gt-dashboard-drawer {
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+  }
+
+  .gt-dashboard-nav-inner {
+    background: rgba(15, 23, 42, 0.9);
+    border: 1px solid rgba(148, 163, 184, 0.28);
+    border-radius: 1.25rem;
+    padding: 1.25rem;
+  }
+
+  .gt-dashboard-nav-links {
+    display: flex;
+    gap: 0.5rem;
+    flex-direction: column;
+  }
+
+  .gt-dashboard-nav-link {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    padding: 0.45rem 0.75rem;
+    border-radius: 0.75rem;
+    border: 1px solid rgba(148, 163, 184, 0.25);
+    color: #cbd5f5;
+    font-size: 0.85rem;
+    text-decoration: none;
+  }
+
+  .gt-dashboard-nav-link:hover {
+    border-color: rgba(129, 140, 248, 0.6);
+    color: #eef2ff;
+  }
+
+  .gt-dashboard-section {
+    display: none !important;
+  }
+
+  .gt-dashboard-section.is-active {
+    display: block !important;
+  }
+
+  .gt-dashboard-section a.rounded-2xl {
+    display: block;
+  }
+
+  .gt-dashboard-overview-cards {
+    grid-template-columns: 1fr;
+    display: grid;
+  }
+
+  .gt-dashboard-overview-card {
+    border-radius: 1.25rem;
+    border: 1px solid rgba(148, 163, 184, 0.18);
+    background: rgba(15, 23, 42, 0.55);
+    padding: 1.25rem;
+    text-decoration: none;
+  }
+
+  .gt-dashboard-overview-card:hover {
+    border-color: rgba(129, 140, 248, 0.45);
+    background: rgba(15, 23, 42, 0.7);
+  }
+
+  .gt-dashboard-overview-card-danger:hover {
+    border-color: rgba(248, 113, 113, 0.45);
+  }
+
+  .gt-dashboard-grid {
+    display: block;
+  }
+
+  .gt-mobile-only {
+    display: block;
+  }
+
+  body.home .gt-client-account-card,
+  body.home .gt-client-tips-card {
+    display: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  .gt-dashboard-toggle,
+  .gt-dashboard-drawer,
+  .gt-dashboard-backdrop {
+    display: none !important;
+  }
+
+  .gt-dashboard-layout {
+    display: block;
+  }
+
+  .gt-dashboard-section {
+    display: block !important;
+  }
+
+  .gt-dashboard-section .grid {
+    display: grid !important;
+  }
+
+  .gt-dashboard-section .rounded-2xl {
+    display: block !important;
+  }
+
+  .gt-mobile-only {
+    display: none;
+  }
+
+  .gt-dashboard-overview-cards {
+    display: none !important;
+  }
+
+  body.home #gt-dashboard-overview .gt-dashboard-overview-cards {
+    display: none !important;
+  }
+
+  #gt-client-actions,
+  #gt-artist-actions {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+
+  #gt-client-snapshot .grid,
+  #gt-artist-snapshot .grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+}
+
+/* Artists page: mobile-only layout adjustments. */
+@media (max-width: 768px) {
+  #gt-artists-page,
+  body.page-template-page-artists-php .pt-12.pb-24.max-w-7xl,
+  body.page-template-page-artists .pt-12.pb-24.max-w-7xl,
+  body.page-artists .pt-12.pb-24.max-w-7xl {
+    padding-left: 1rem !important;
+    padding-right: 1rem !important;
+  }
+
+  .artist-grid,
+  .artist-directory-grid,
+  .gigtune-artist-grid,
+  #gt-artist-grid,
+  body.page-template-page-artists-php .grid.grid-cols-1.sm\:grid-cols-2.lg\:grid-cols-3,
+  body.page-template-page-artists .grid.grid-cols-1.sm\:grid-cols-2.lg\:grid-cols-3,
+  body.page-artists .grid.grid-cols-1.sm\:grid-cols-2.lg\:grid-cols-3 {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 1.25rem !important;
+  }
+
+  #gt-artists-page form {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 12px;
+  }
+
+  #gt-artists-page form > div:first-child {
+    width: 100%;
+  }
+
+  #gt-artists-page form > div:nth-child(2) {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 10px;
+    overflow-x: visible;
+    padding-bottom: 0;
+  }
+
+  #gt-artists-page form > div:nth-child(2) select:last-of-type {
+    display: none;
+  }
+
+  #gt-artist-grid .p-6,
+  body.page-template-page-artists-php .grid.grid-cols-1.sm\:grid-cols-2.lg\:grid-cols-3 .p-6,
+  body.page-template-page-artists .grid.grid-cols-1.sm\:grid-cols-2.lg\:grid-cols-3 .p-6,
+  body.page-artists .grid.grid-cols-1.sm\:grid-cols-2.lg\:grid-cols-3 .p-6 {
+    padding: 1.25rem !important;
+  }
+
+  #gt-artist-grid .h-48,
+  body.page-template-page-artists-php .grid.grid-cols-1.sm\:grid-cols-2.lg\:grid-cols-3 .h-48,
+  body.page-template-page-artists .grid.grid-cols-1.sm\:grid-cols-2.lg\:grid-cols-3 .h-48,
+  body.page-artists .grid.grid-cols-1.sm\:grid-cols-2.lg\:grid-cols-3 .h-48 {
+    height: 11rem !important;
+  }
+
+  .gt-artist-card .btn,
+  .gt-artist-card button,
+  .gt-artist-card a {
+    width: 100%;
+  }
+}
+
+@media (max-width: 900px) {
+  #gt-artists-page #gt-artist-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr)) !important;
+    gap: 1.25rem !important;
+  }
+}
+
+.gt-artist-card h3 {
+  font-size: 0.7em;
+}
+
+/* Give all pages more usable width on large screens. */
+@media (min-width: 1024px) {
+  .max-w-7xl {
+    max-width: 90rem;
+  }
+}
+
+@media (min-width: 1536px) {
+  .max-w-7xl {
+    max-width: 102rem;
+  }
+}
+
+/* GigTune artist grids: override Tailwind columns to fit text and room. */
+body.home .grid.gap-6.lg\:grid-cols-2 {
+  grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr) !important;
+}
+
+body.home .grid.gap-4.sm\:grid-cols-2.lg\:grid-cols-3 {
+  gap: 1.75rem !important;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)) !important;
+}
+
+body.home .grid.gap-4.sm\:grid-cols-2.lg\:grid-cols-3 > .rounded-2xl.border.border-white\/10.bg-white\/5.p-5 {
+  padding: 1.5rem !important;
+  min-width: 0;
+}
+
+body.home .grid.gap-4.sm\:grid-cols-2.lg\:grid-cols-3 .text-white.font-semibold.text-lg {
+  font-size: 1rem !important;
+  line-height: 1.3;
+  word-break: break-word;
+}
+
+.gt-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  border-radius: 14px;
+  padding: 14px 18px;
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1;
+  border: 1px solid rgba(255,255,255,0.12);
+  cursor: pointer;
+  transition: transform 120ms ease, filter 120ms ease, opacity 120ms ease;
+}
+
+.gt-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.gt-btn-primary {
+  color: #fff;
+  box-shadow: 0 1px 0 rgba(255,255,255,0.06);
+}
+
+.gt-btn-yoco {
+  /* YOCO-inspired: blue -> very light peach (subtle) */
+  background: linear-gradient(90deg, rgba(30,136,229,1) 0%, rgba(67,99,235,1) 55%, rgba(246,215,176,0.85) 100%);
+}
+
+.gt-btn-yoco:hover {
+  filter: brightness(1.05);
+  transform: translateY(-1px);
+}
+
+.gt-yoco-helper {
+  margin-top: 10px;
+  font-size: 12px;
+  color: rgba(226,232,240,0.85);
+}

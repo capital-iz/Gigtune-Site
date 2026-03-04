@@ -121,6 +121,13 @@ Route::middleware(['gigtune.auth', 'gigtune.admin'])->group(function (): void {
 Route::any('/wp-admin/{path?}', [LegacyWordPressPathController::class, 'wpAdmin'])->where('path', '.*');
 Route::match(['GET', 'POST'], '/wp-login.php', [LegacyWordPressPathController::class, 'wpLogin'])
     ->withoutMiddleware([ValidateCsrfToken::class]);
+Route::match(['GET', 'POST'], '/wp-login.php/{path}', function (string $path) {
+    $normalized = '/' . ltrim(trim($path), '/');
+    if ($normalized === '/' || str_starts_with($normalized, '//')) {
+        return redirect('/sign-in/', 302);
+    }
+    return redirect($normalized, 302);
+})->where('path', '.*')->withoutMiddleware([ValidateCsrfToken::class]);
 Route::match(['GET', 'POST'], '/admin-ajax.php', [LegacyWordPressPathController::class, 'adminAjax'])
     ->withoutMiddleware([ValidateCsrfToken::class]);
 Route::match(['GET', 'POST'], '/wp-admin/admin-ajax.php', [LegacyWordPressPathController::class, 'adminAjax'])

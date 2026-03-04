@@ -99,16 +99,29 @@ class WpThemeRuntime
             return $path;
         }
 
-        $request = self::$request;
-        if ($request !== null) {
-            // Use Symfony-normalized host so non-standard ports (e.g. :8002) are preserved.
-            $base = rtrim($request->getSchemeAndHttpHost(), '/');
-            $basePath = trim((string) $request->getBaseUrl());
-            if ($basePath !== '') {
-                $base .= '/' . trim($basePath, '/');
+        $appUrl = trim((string) config('app.url', ''));
+        if ($appUrl !== '') {
+            $scheme = (string) (parse_url($appUrl, PHP_URL_SCHEME) ?? '');
+            $host = (string) (parse_url($appUrl, PHP_URL_HOST) ?? '');
+            $port = parse_url($appUrl, PHP_URL_PORT);
+            $rootPath = trim((string) (parse_url($appUrl, PHP_URL_PATH) ?? ''));
+
+            if ($scheme !== '' && $host !== '') {
+                $base = $scheme . '://' . $host;
+                if (is_int($port) && $port > 0) {
+                    $base .= ':' . $port;
+                }
+                if ($rootPath !== '' && $rootPath !== '/') {
+                    $base .= '/' . trim($rootPath, '/');
+                }
+            } else {
+                $base = rtrim($appUrl, '/');
             }
         } else {
-            $base = rtrim((string) config('app.url', ''), '/');
+            $request = self::$request;
+            $base = $request !== null
+                ? rtrim($request->getSchemeAndHttpHost(), '/')
+                : '';
         }
 
         if ($path === '') {

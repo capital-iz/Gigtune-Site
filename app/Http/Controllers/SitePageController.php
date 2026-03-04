@@ -43,7 +43,8 @@ class SitePageController extends Controller
 
         if ($slug === 'logout' || $slug === 'sign-out') {
             $this->logoutSession($request);
-            return redirect('/', 302);
+            $redirectTo = $this->safeRedirectPath((string) $request->query('redirect_to', '/'), '/');
+            return redirect($redirectTo, 302);
         }
 
         if (in_array($slug, ['join', 'login', 'sign-in'], true) && is_array($currentUser)) {
@@ -518,5 +519,39 @@ class SitePageController extends Controller
             : '';
 
         return $path . $query . $fragment;
+    }
+
+    private function safeRedirectPath(string $candidate, string $fallback): string
+    {
+        $candidate = trim($candidate);
+        if ($candidate === '') {
+            return $fallback;
+        }
+
+        if (str_starts_with($candidate, 'http://') || str_starts_with($candidate, 'https://')) {
+            $parts = parse_url($candidate);
+            if (!is_array($parts)) {
+                return $fallback;
+            }
+            $host = strtolower(trim((string) ($parts['host'] ?? '')));
+            $appHost = strtolower(trim((string) parse_url((string) config('app.url', ''), PHP_URL_HOST)));
+            if ($host === '' || $appHost === '' || $host !== $appHost) {
+                return $fallback;
+            }
+            $path = (string) ($parts['path'] ?? '/');
+            $query = isset($parts['query']) && trim((string) $parts['query']) !== ''
+                ? ('?' . (string) $parts['query'])
+                : '';
+            $fragment = isset($parts['fragment']) && trim((string) $parts['fragment']) !== ''
+                ? ('#' . (string) $parts['fragment'])
+                : '';
+            $candidate = $path . $query . $fragment;
+        }
+
+        if (!str_starts_with($candidate, '/') || str_starts_with($candidate, '//')) {
+            return $fallback;
+        }
+
+        return $candidate;
     }
 }

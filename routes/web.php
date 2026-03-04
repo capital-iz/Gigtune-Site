@@ -123,6 +123,9 @@ Route::match(['GET', 'POST'], '/wp-login.php', [LegacyWordPressPathController::c
     ->withoutMiddleware([ValidateCsrfToken::class]);
 Route::match(['GET', 'POST'], '/admin-ajax.php', [LegacyWordPressPathController::class, 'adminAjax'])
     ->withoutMiddleware([ValidateCsrfToken::class]);
+Route::match(['GET', 'POST'], '/wp-admin/admin-ajax.php', [LegacyWordPressPathController::class, 'adminAjax'])
+    ->withoutMiddleware([ValidateCsrfToken::class]);
+Route::get('/favicon.ico', fn () => redirect('/wp-content/themes/gigtune-canon/assets/img/gigtune-logo-bp.png', 302));
 
 Route::get('/', [SitePageController::class, 'home']);
 Route::any('/{path?}', [SitePageController::class, 'page'])

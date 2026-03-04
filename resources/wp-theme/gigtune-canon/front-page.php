@@ -334,7 +334,7 @@
                   <div class="text-xs text-slate-400">Browse Client Posts</div>
                   <div class="text-lg text-white font-semibold mt-2">Open gigs</div>
                 </a>
-                <a href="<?php echo esc_url(home_url('/wp-login.php?action=logout&redirect_to=' . rawurlencode(home_url('/')))); ?>" class="gt-dashboard-overview-card gt-dashboard-overview-card-danger">
+                <a href="<?php echo esc_url(wp_logout_url(home_url('/'))); ?>" class="gt-dashboard-overview-card gt-dashboard-overview-card-danger">
                   <div class="text-xs text-slate-400">Account</div>
                   <div class="text-lg text-white font-semibold mt-2">Log out</div>
                 </a>
@@ -349,7 +349,7 @@
                   <div class="text-xs text-slate-400">Browse Client Posts</div>
                   <div class="text-lg text-white font-semibold mt-2">Open gigs</div>
                 </a>
-                <a href="<?php echo esc_url(home_url('/wp-login.php?action=logout&redirect_to=' . rawurlencode(home_url('/')))); ?>" class="gt-dashboard-overview-card gt-dashboard-overview-card-danger">
+                <a href="<?php echo esc_url(wp_logout_url(home_url('/'))); ?>" class="gt-dashboard-overview-card gt-dashboard-overview-card-danger">
                   <div class="text-xs text-slate-400">Account</div>
                   <div class="text-lg text-white font-semibold mt-2">Log out</div>
                 </a>

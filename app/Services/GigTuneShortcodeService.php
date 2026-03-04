@@ -900,141 +900,165 @@ class GigTuneShortcodeService
                 $errorMessage = 'Please sign in to book an artist.';
                 $errorList = [$errorMessage];
             } else {
+                $userId = (int) ($u['id'] ?? 0);
                 $roles = is_array($u['roles'] ?? null) ? array_map(static fn ($r): string => strtolower((string) $r), $u['roles']) : [];
                 if (!in_array('gigtune_client', $roles, true)) {
                     $error = '1';
                     $errorMessage = 'Only client accounts can create booking requests.';
                     $errorList = [$errorMessage];
-                } elseif ($this->latestUserMeta((int) ($u['id'] ?? 0), 'gigtune_email_verified') !== '1') {
-                    $error = '1';
-                    $errorMessage = 'Verify your email address before booking.';
-                    $errorList = [$errorMessage];
                 } else {
-                    $fieldErrors = [];
-                    if ($artistIdInput <= 0) {
-                        $fieldErrors['artist_id'] = 'Artist not selected.';
-                    }
-                    if ($values['event_date'] === '') {
-                        $fieldErrors['event_date'] = 'Event date is required.';
-                    }
-                    if ($values['event_address_street'] === '' || $values['event_address_city'] === '' || $values['event_address_province'] === '' || $values['event_address_postal_code'] === '') {
-                        $fieldErrors['event_location'] = 'Complete address fields are required.';
-                    }
-                    if ($values['event_address_postal_code'] !== '' && preg_match('/^\d{4}$/', $values['event_address_postal_code']) !== 1) {
-                        $fieldErrors['address_postal_code'] = 'Postal code must be a 4-digit number.';
-                    }
-
-                    if ($fieldErrors !== []) {
+                    $clientRequirements = $this->missingRequirements($userId, 'client_can_book');
+                    if ($clientRequirements !== []) {
                         $error = '1';
-                        $errorMessage = (string) reset($fieldErrors);
-                        $errorList = array_values($fieldErrors);
-                        $first = (string) array_key_first($fieldErrors);
-                        $firstErrorField = match ($first) {
-                            'event_date' => 'gigtune-booking-event-date',
-                            'event_location' => 'event_address_street',
-                            'address_postal_code' => 'event_address_postal_code',
-                            default => '',
-                        };
+                        $errorMessage = $this->firstMissingRequirementMessage($clientRequirements, 'Please complete your account before creating bookings.');
+                        $errorList = [$errorMessage];
                     } else {
-                        $artist = $this->getArtistById($artistIdInput);
-                        if (!is_array($artist)) {
+                        $clientRequestRequirements = $this->missingRequirements($userId, 'client_can_request');
+                        if ($clientRequestRequirements !== []) {
                             $error = '1';
-                            $errorMessage = 'Artist not found.';
+                            $errorMessage = $this->firstMissingRequirementMessage($clientRequestRequirements, 'Identity Verification (Know Your Customer Compliance) is required before creating bookings.');
                             $errorList = [$errorMessage];
                         } else {
-                            $now = now();
-                            $nowUtc = now('UTC');
-                            $title = 'Booking Request - ' . ((string) ($artist['title'] ?? ('Artist #' . $artistIdInput))) . ' - ' . $now->format('Y-m-d H:i');
-                            $bookingId = (int) $this->db()->table($this->posts())->insertGetId([
-                                'post_author' => (int) ($u['id'] ?? 0),
-                                'post_date' => $now->format('Y-m-d H:i:s'),
-                                'post_date_gmt' => $nowUtc->format('Y-m-d H:i:s'),
-                                'post_content' => $values['notes'],
-                                'post_title' => $title,
-                                'post_status' => 'publish',
-                                'comment_status' => 'closed',
-                                'ping_status' => 'closed',
-                                'post_name' => 'booking-request-' . $artistIdInput . '-' . $now->format('YmdHis') . '-' . random_int(100, 999),
-                                'post_modified' => $now->format('Y-m-d H:i:s'),
-                                'post_modified_gmt' => $nowUtc->format('Y-m-d H:i:s'),
-                                'post_type' => 'gigtune_booking',
-                            ]);
-
-                            $locationText = implode(', ', array_values(array_filter([
-                                $values['event_address_street'],
-                                $values['event_address_suburb'],
-                                $values['event_address_city'],
-                                $values['event_address_province'],
-                                $values['event_address_postal_code'],
-                                $values['event_address_country'],
-                            ], static fn ($v): bool => trim((string) $v) !== '')));
-
-                            $requestedTs = $now->timestamp;
-                            $expiryTs = $now->copy()->addHours(72)->timestamp;
-                            $budgetInt = max(0, (int) $values['budget']);
-
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_id', (string) $bookingId);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_artist_profile_id', (string) $artistIdInput);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_client_user_id', (string) (int) ($u['id'] ?? 0));
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_status', 'REQUESTED');
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_requested_at', $now->format('Y-m-d H:i:s'));
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_request_expires_at', (string) $expiryTs);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_event_date', $values['event_date']);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_location_text', $locationText);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_address_street', $values['event_address_street']);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_address_suburb', $values['event_address_suburb']);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_address_city', $values['event_address_city']);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_address_province', $values['event_address_province']);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_address_postal_code', $values['event_address_postal_code']);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_address_country', $values['event_address_country']);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_notes', $values['notes']);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_requires_accommodation', $values['requires_accommodation']);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_client_offers_accommodation', $values['client_offers_accommodation']);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_accommodation_note', $values['accommodation_note']);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_travel_amount', $values['travel_amount']);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_created_at', (string) $requestedTs);
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_quote_accepted', '0');
-                            $this->upsertPostMeta($bookingId, 'gigtune_payment_status', 'UNPAID');
-                            $this->upsertPostMeta($bookingId, 'gigtune_payout_status', 'PENDING_MANUAL');
-                            $this->upsertPostMeta($bookingId, 'gigtune_escrow_status', 'UNFUNDED');
-                            $this->upsertPostMeta($bookingId, 'gigtune_escrow_amount', '0');
-                            $this->upsertPostMeta($bookingId, 'gigtune_dispute_raised', '0');
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_currency', 'ZAR');
-                            if ($budgetInt > 0) {
-                                $this->upsertPostMeta($bookingId, 'gigtune_booking_budget', (string) $budgetInt);
-                                $this->upsertPostMeta($bookingId, 'gigtune_booking_quote_amount', (string) $budgetInt);
-                                $this->upsertPostMeta($bookingId, 'gigtune_booking_quote_snapshot', serialize(['amount' => $budgetInt, 'currency' => 'ZAR']));
+                            $fieldErrors = [];
+                            if ($artistIdInput <= 0) {
+                                $fieldErrors['artist_id'] = 'Artist not selected.';
                             }
-                            $eventTs = strtotime($values['event_date']);
-                            if ($eventTs !== false && $eventTs > 0) {
-                                $this->upsertPostMeta($bookingId, 'gigtune_booking_start_time', date('H:i', $eventTs));
-                                $this->upsertPostMeta($bookingId, 'gigtune_booking_end_time', date('H:i', $eventTs));
+                            if ($values['event_date'] === '') {
+                                $fieldErrors['event_date'] = 'Event date is required.';
                             }
-                            $this->upsertPostMeta($bookingId, 'gigtune_booking_state_log', serialize([
-                                ['event' => 'requested', 'at' => $requestedTs, 'actor_user_id' => (int) ($u['id'] ?? 0)],
-                            ]));
+                            if ($values['event_address_street'] === '' || $values['event_address_city'] === '' || $values['event_address_province'] === '' || $values['event_address_postal_code'] === '') {
+                                $fieldErrors['event_location'] = 'Complete address fields are required.';
+                            }
+                            if ($values['event_address_postal_code'] !== '' && preg_match('/^\d{4}$/', $values['event_address_postal_code']) !== 1) {
+                                $fieldErrors['address_postal_code'] = 'Postal code must be a 4-digit number.';
+                            }
 
-                            $success = '1';
-                            $error = '';
-                            $errorMessage = '';
-                            $errorList = [];
-                            $firstErrorField = '';
-                            $artistId = $artistIdInput;
-                            $values = [
-                                'event_date' => '',
-                                'event_address_street' => '',
-                                'event_address_suburb' => '',
-                                'event_address_city' => '',
-                                'event_address_province' => '',
-                                'event_address_postal_code' => '',
-                                'event_address_country' => 'South Africa',
-                                'budget' => '',
-                                'travel_amount' => '',
-                                'requires_accommodation' => '0',
-                                'client_offers_accommodation' => '0',
-                                'accommodation_note' => '',
-                                'notes' => '',
-                            ];
+                            if ($fieldErrors !== []) {
+                                $error = '1';
+                                $errorMessage = (string) reset($fieldErrors);
+                                $errorList = array_values($fieldErrors);
+                                $first = (string) array_key_first($fieldErrors);
+                                $firstErrorField = match ($first) {
+                                    'event_date' => 'gigtune-booking-event-date',
+                                    'event_location' => 'event_address_street',
+                                    'address_postal_code' => 'event_address_postal_code',
+                                    default => '',
+                                };
+                            } else {
+                                $artist = $this->getArtistById($artistIdInput);
+                                if (!is_array($artist)) {
+                                    $error = '1';
+                                    $errorMessage = 'Artist not found.';
+                                    $errorList = [$errorMessage];
+                                } else {
+                                    $artistMeta = is_array($artist['meta'] ?? null) ? $artist['meta'] : [];
+                                    $artistOwnerId = (int) ($artistMeta['gigtune_user_id'] ?? $artistMeta['gigtune_artist_user_id'] ?? 0);
+                                    if ($artistOwnerId > 0) {
+                                        $artistRequirements = $this->missingRequirements($artistOwnerId, 'artist_can_receive_requests');
+                                        if ($artistRequirements !== []) {
+                                            $error = '1';
+                                            $errorMessage = $this->firstMissingRequirementMessage($artistRequirements, 'The selected artist cannot receive booking requests right now.');
+                                            $errorList = [$errorMessage];
+                                        }
+                                    }
+                                }
+                            }
+
+                            if ($error === '') {
+                                $now = now();
+                                $nowUtc = now('UTC');
+                                $title = 'Booking Request - ' . ((string) ($artist['title'] ?? ('Artist #' . $artistIdInput))) . ' - ' . $now->format('Y-m-d H:i');
+                                $bookingId = (int) $this->db()->table($this->posts())->insertGetId([
+                                    'post_author' => (int) ($u['id'] ?? 0),
+                                    'post_date' => $now->format('Y-m-d H:i:s'),
+                                    'post_date_gmt' => $nowUtc->format('Y-m-d H:i:s'),
+                                    'post_content' => $values['notes'],
+                                    'post_title' => $title,
+                                    'post_status' => 'publish',
+                                    'comment_status' => 'closed',
+                                    'ping_status' => 'closed',
+                                    'post_name' => 'booking-request-' . $artistIdInput . '-' . $now->format('YmdHis') . '-' . random_int(100, 999),
+                                    'post_modified' => $now->format('Y-m-d H:i:s'),
+                                    'post_modified_gmt' => $nowUtc->format('Y-m-d H:i:s'),
+                                    'post_type' => 'gigtune_booking',
+                                ]);
+
+                                $locationText = implode(', ', array_values(array_filter([
+                                    $values['event_address_street'],
+                                    $values['event_address_suburb'],
+                                    $values['event_address_city'],
+                                    $values['event_address_province'],
+                                    $values['event_address_postal_code'],
+                                    $values['event_address_country'],
+                                ], static fn ($v): bool => trim((string) $v) !== '')));
+
+                                $requestedTs = $now->timestamp;
+                                $expiryTs = $now->copy()->addHours(72)->timestamp;
+                                $budgetInt = max(0, (int) $values['budget']);
+
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_id', (string) $bookingId);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_artist_profile_id', (string) $artistIdInput);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_client_user_id', (string) (int) ($u['id'] ?? 0));
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_status', 'REQUESTED');
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_requested_at', $now->format('Y-m-d H:i:s'));
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_request_expires_at', (string) $expiryTs);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_event_date', $values['event_date']);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_location_text', $locationText);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_address_street', $values['event_address_street']);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_address_suburb', $values['event_address_suburb']);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_address_city', $values['event_address_city']);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_address_province', $values['event_address_province']);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_address_postal_code', $values['event_address_postal_code']);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_address_country', $values['event_address_country']);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_notes', $values['notes']);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_requires_accommodation', $values['requires_accommodation']);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_client_offers_accommodation', $values['client_offers_accommodation']);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_accommodation_note', $values['accommodation_note']);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_travel_amount', $values['travel_amount']);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_created_at', (string) $requestedTs);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_quote_accepted', '0');
+                                $this->upsertPostMeta($bookingId, 'gigtune_payment_status', 'UNPAID');
+                                $this->upsertPostMeta($bookingId, 'gigtune_payout_status', 'PENDING_MANUAL');
+                                $this->upsertPostMeta($bookingId, 'gigtune_escrow_status', 'UNFUNDED');
+                                $this->upsertPostMeta($bookingId, 'gigtune_escrow_amount', '0');
+                                $this->upsertPostMeta($bookingId, 'gigtune_dispute_raised', '0');
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_currency', 'ZAR');
+                                if ($budgetInt > 0) {
+                                    $this->upsertPostMeta($bookingId, 'gigtune_booking_budget', (string) $budgetInt);
+                                    $this->upsertPostMeta($bookingId, 'gigtune_booking_quote_amount', (string) $budgetInt);
+                                    $this->upsertPostMeta($bookingId, 'gigtune_booking_quote_snapshot', serialize(['amount' => $budgetInt, 'currency' => 'ZAR']));
+                                }
+                                $eventTs = strtotime($values['event_date']);
+                                if ($eventTs !== false && $eventTs > 0) {
+                                    $this->upsertPostMeta($bookingId, 'gigtune_booking_start_time', date('H:i', $eventTs));
+                                    $this->upsertPostMeta($bookingId, 'gigtune_booking_end_time', date('H:i', $eventTs));
+                                }
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_state_log', serialize([
+                                    ['event' => 'requested', 'at' => $requestedTs, 'actor_user_id' => (int) ($u['id'] ?? 0)],
+                                ]));
+
+                                $success = '1';
+                                $error = '';
+                                $errorMessage = '';
+                                $errorList = [];
+                                $firstErrorField = '';
+                                $artistId = $artistIdInput;
+                                $values = [
+                                    'event_date' => '',
+                                    'event_address_street' => '',
+                                    'event_address_suburb' => '',
+                                    'event_address_city' => '',
+                                    'event_address_province' => '',
+                                    'event_address_postal_code' => '',
+                                    'event_address_country' => 'South Africa',
+                                    'budget' => '',
+                                    'travel_amount' => '',
+                                    'requires_accommodation' => '0',
+                                    'client_offers_accommodation' => '0',
+                                    'accommodation_note' => '',
+                                    'notes' => '',
+                                ];
+                            }
                         }
                     }
                 }
@@ -1064,7 +1088,7 @@ class GigTuneShortcodeService
         }
 
         if ($artistId <= 0) {
-            $artists = $this->getArtists(['per_page' => 24, 'paged' => 1, 'include_incomplete' => true])['items'];
+            $artists = $this->getArtists(['per_page' => 24, 'paged' => 1])['items'];
             $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
             $html .= '<h2 class="text-xl md:text-2xl font-bold text-white mb-2">Choose an artist</h2>';
             $html .= '<p class="text-slate-300/80 mb-6">Select an artist below to start your booking request.</p>';
@@ -1422,9 +1446,17 @@ class GigTuneShortcodeService
         }
         $uid = (int) ($u['id'] ?? 0);
         $request = $this->req($ctx);
+        $submitError = '';
         if ($request !== null && strtoupper((string) $request->method()) === 'POST' && (string) $request->input('gigtune_policy_consent_submit', '') === '1') {
             $accepted = $this->users->mapAcceptedPolicyInput($request->all());
-            $this->users->storePolicyAcceptance($uid, $accepted);
+            $required = array_keys($this->users->requiredPolicyVersions());
+            $missing = array_values(array_diff($required, $accepted));
+            if ($missing === []) {
+                // Keep parity with legacy plugin behavior: submit implies all required policies.
+                $this->users->storePolicyAcceptance($uid, $required);
+            } else {
+                $submitError = 'Please accept all required policies before continuing.';
+            }
         }
         $policy = $this->users->getPolicyStatus($uid);
         if ((bool) ($policy['has_latest'] ?? false)) {
@@ -1433,6 +1465,9 @@ class GigTuneShortcodeService
         $required = is_array($policy['required'] ?? null) ? $policy['required'] : [];
         $documents = is_array($policy['documents'] ?? null) ? $policy['documents'] : [];
         $html = '<div class="rounded-2xl border border-white/10 bg-white/5 p-6 md:p-8"><h2 class="text-2xl font-bold text-white">Policy acceptance required</h2><p class="mt-2 text-sm text-slate-300">Please accept the latest policies to continue using your dashboard.</p><form method="post" class="mt-5 space-y-4"><input type="hidden" name="gigtune_policy_consent_submit" value="1">';
+        if ($submitError !== '') {
+            $html .= '<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">' . e($submitError) . '</div>';
+        }
         foreach ($required as $key => $version) {
             $url = (string) ($documents[$key] ?? '/');
             $html .= '<label class="flex items-start gap-3 rounded-xl border border-white/10 bg-black/20 p-4 text-sm text-slate-200"><input type="checkbox" name="' . e((string) $key) . '" value="1" class="mt-0.5 h-4 w-4 rounded border-white/20 bg-transparent text-blue-500 focus:ring-blue-400" required><span>I agree to policy <a class="text-blue-300 hover:text-blue-200 underline" href="' . e($url) . '" target="_blank" rel="noopener">' . e((string) $key) . ' (' . e((string) $version) . ')</a>.</span></label>';
@@ -1485,7 +1520,7 @@ class GigTuneShortcodeService
             . '</div>';
     }
 
-    private function signOut(array $a): string { return '<a href="/wp-login.php?action=logout&redirect_to=/" class="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white">Sign Out</a>'; }
+    private function signOut(array $a): string { return '<a href="/sign-out/?redirect_to=/" class="rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white">Sign Out</a>'; }
     private function verifyEmail(array $a, ?array $u = null, array $ctx = []): string
     {
         $request = $this->req($ctx);
@@ -1598,6 +1633,10 @@ class GigTuneShortcodeService
 
         $uid = (int) ($u['id'] ?? 0);
         $policy = $this->users->getPolicyStatus($uid);
+        $userMeta = $this->userMetaLatestMap([$uid], [
+            'gigtune_email_verification_required',
+            'gigtune_email_verified',
+        ])[$uid] ?? [];
         $kycStatus = strtolower(trim($this->latestUserMeta($uid, 'gigtune_kyc_status')));
         if ($kycStatus === '') {
             $kycStatus = 'unsubmitted';
@@ -1609,10 +1648,18 @@ class GigTuneShortcodeService
             'rejected' => 'Rejected',
             'locked' => 'Security locked',
         ][$kycStatus] ?? ucfirst($kycStatus);
-        $emailVerified = $this->latestUserMeta($uid, 'gigtune_email_verified') === '1';
+        $emailVerified = $this->userEmailVerified($userMeta);
+        $requirementsContext = $artist ? 'artist_bookable' : 'client_can_book';
+        $missingRequirements = $this->missingRequirements($uid, $requirementsContext);
 
         $html = '<div class="grid gap-6 lg:grid-cols-3">';
         $html .= '<div class="lg:col-span-2 space-y-6">';
+        if ($missingRequirements !== []) {
+            $requirementsTitle = $artist
+                ? 'Complete these steps to make your artist profile discoverable'
+                : 'Complete these steps to unlock booking actions';
+            $html .= $this->renderMissingRequirementsPanel($requirementsTitle, $missingRequirements);
+        }
         $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
         $html .= '<h3 class="text-lg font-semibold text-white">' . e($title) . '</h3>';
         $html .= '<p class="mt-2 text-sm text-slate-300">Manage bookings, messages, notifications, and account compliance.</p>';
@@ -2323,6 +2370,308 @@ class GigTuneShortcodeService
         }
         $parts = array_values(array_filter($parts, static fn ($part): bool => trim((string) $part) !== ''));
         return count($parts) >= 2;
+    }
+
+    /** @return array<string,array{message:string,url:string}> */
+    private function missingRequirements(int $userId, string $context): array
+    {
+        $userId = abs($userId);
+        $context = strtolower(trim($context));
+        $missing = [];
+
+        if ($userId <= 0) {
+            $missing['sign_in'] = [
+                'message' => 'Please sign in to continue.',
+                'url' => '/sign-in/',
+            ];
+            return $missing;
+        }
+
+        $userRow = $this->db()->table($this->usersTable())
+            ->where('ID', $userId)
+            ->first(['ID', 'display_name']);
+        if ($userRow === null) {
+            $missing['account'] = [
+                'message' => 'User account could not be loaded.',
+                'url' => '/',
+            ];
+            return $missing;
+        }
+
+        $userMeta = $this->userMetaLatestMap([$userId], [
+            'gigtune_email_verification_required',
+            'gigtune_email_verified',
+            'first_name',
+            'last_name',
+            'gigtune_policy_acceptance',
+            'gigtune_kyc_status',
+            'gigtune_kyc_required_for',
+        ])[$userId] ?? [];
+
+        $firstName = trim((string) ($userMeta['first_name'] ?? ''));
+        $lastName = trim((string) ($userMeta['last_name'] ?? ''));
+        $fullName = trim($firstName . ' ' . $lastName);
+        $displayName = trim((string) ($userRow->display_name ?? ''));
+        $hasValidName = $this->isValidFullName($fullName) || $this->isValidFullName($displayName);
+        $hasLatestPolicies = $this->userHasLatestPolicyAcceptance($userMeta, $this->users->requiredPolicyVersions());
+        $emailVerified = $this->userEmailVerified($userMeta);
+        $kycRequiredFor = $this->userKycRequiredFor($userMeta);
+        $kycStatus = $this->userKycStatus($userMeta);
+
+        if (in_array($context, ['client_can_book', 'client_can_request'], true)) {
+            if (!$hasValidName) {
+                $missing['full_name'] = [
+                    'message' => 'Complete your account name (name and surname).',
+                    'url' => '/my-account-page/',
+                ];
+            }
+            if (!$hasLatestPolicies) {
+                $missing['policy_acceptance'] = [
+                    'message' => 'Accept the latest policies to continue.',
+                    'url' => '/policy-consent/',
+                ];
+            }
+            if (!$emailVerified) {
+                $missing['email_verified'] = [
+                    'message' => 'Verify your email address before booking.',
+                    'url' => '/verify-email/',
+                ];
+            }
+            if (in_array('client_requests', $kycRequiredFor, true) && $kycStatus !== 'verified') {
+                $missing['kyc_status'] = [
+                    'message' => 'Identity Verification (Know Your Customer Compliance) is required before booking.',
+                    'url' => '/kyc-status/',
+                ];
+            }
+
+            $clientProfileId = $this->latestUserMetaInt($userId, 'gigtune_client_profile_id');
+            if ($clientProfileId <= 0) {
+                $missing['client_profile'] = [
+                    'message' => 'Complete your client profile before booking.',
+                    'url' => '/my-account-page/',
+                ];
+            } else {
+                $profile = $this->db()->table($this->posts())
+                    ->where('ID', $clientProfileId)
+                    ->where('post_type', 'gt_client_profile')
+                    ->first(['post_title', 'post_content']);
+                if ($profile === null) {
+                    $missing['client_profile'] = [
+                        'message' => 'Complete your client profile before booking.',
+                        'url' => '/my-account-page/',
+                    ];
+                } else {
+                    $meta = $this->postMetaMap([$clientProfileId], [
+                        'gigtune_client_company',
+                        'gigtune_client_phone',
+                        'gigtune_client_base_area',
+                    ])[$clientProfileId] ?? [];
+                    $company = trim((string) ($meta['gigtune_client_company'] ?? ''));
+                    $phoneDigits = preg_replace('/\D+/', '', (string) ($meta['gigtune_client_phone'] ?? '')) ?? '';
+                    $baseArea = trim((string) ($meta['gigtune_client_base_area'] ?? ''));
+                    $title = trim((string) ($profile->post_title ?? ''));
+                    $bio = trim((string) ($profile->post_content ?? ''));
+
+                    if ($title === '') {
+                        $missing['client_title'] = [
+                            'message' => 'Add your display name in your client profile.',
+                            'url' => '/my-account-page/',
+                        ];
+                    }
+                    if ($bio === '') {
+                        $missing['client_bio'] = [
+                            'message' => 'Add your about section in your client profile.',
+                            'url' => '/my-account-page/',
+                        ];
+                    }
+                    if ($company === '') {
+                        $missing['client_company'] = [
+                            'message' => 'Add your company name in your client profile.',
+                            'url' => '/my-account-page/',
+                        ];
+                    }
+                    if ($baseArea === '') {
+                        $missing['client_base_area'] = [
+                            'message' => 'Add your base area in your client profile.',
+                            'url' => '/my-account-page/',
+                        ];
+                    }
+                    if (strlen($phoneDigits) < 9) {
+                        $missing['client_phone'] = [
+                            'message' => 'Add a valid phone number in your client profile.',
+                            'url' => '/my-account-page/',
+                        ];
+                    }
+                }
+            }
+
+            return $missing;
+        }
+
+        if (!in_array($context, ['artist_bookable', 'artist_payout_ready', 'artist_can_receive_requests'], true)) {
+            return $missing;
+        }
+
+        $profileId = $this->latestUserMetaInt($userId, 'gigtune_artist_profile_id');
+        if ($profileId <= 0) {
+            $missing['profile_link'] = [
+                'message' => 'Create and link your artist profile.',
+                'url' => '/artist-profile-edit/',
+            ];
+            return $missing;
+        }
+
+        if (!$emailVerified) {
+            $missing['email_verified'] = [
+                'message' => 'Verify your email before making your profile discoverable.',
+                'url' => '/verify-email/',
+            ];
+        }
+        if (!$hasValidName) {
+            $missing['full_name'] = [
+                'message' => 'Complete your account name (name and surname).',
+                'url' => '/artist-profile-edit/',
+            ];
+        }
+        if (!$hasLatestPolicies) {
+            $missing['policy_acceptance'] = [
+                'message' => 'Accept the latest policies to continue.',
+                'url' => '/policy-consent/',
+            ];
+        }
+
+        $requiresArtistKyc = in_array('artist_receive_requests', $kycRequiredFor, true);
+        $requiresPayoutKyc = $context === 'artist_payout_ready' && in_array('payouts', $kycRequiredFor, true);
+        if (($requiresArtistKyc || $requiresPayoutKyc) && $kycStatus !== 'verified') {
+            $missing['kyc_status'] = [
+                'message' => 'Identity Verification (Know Your Customer Compliance) is required.',
+                'url' => '/kyc-status/',
+            ];
+        }
+
+        $profile = $this->db()->table($this->posts())
+            ->where('ID', $profileId)
+            ->where('post_type', 'artist_profile')
+            ->first(['post_title', 'post_content']);
+        if ($profile === null) {
+            $missing['profile_link'] = [
+                'message' => 'Create and link your artist profile.',
+                'url' => '/artist-profile-edit/',
+            ];
+            return $missing;
+        }
+
+        $meta = $this->postMetaMap([$profileId], [
+            'gigtune_artist_base_area',
+            'gigtune_artist_travel_radius_km',
+            'gigtune_artist_price_min',
+            'gigtune_artist_price_max',
+            'gigtune_artist_availability_days',
+            'gigtune_artist_availability_start_time',
+            'gigtune_artist_availability_end_time',
+            'gigtune_artist_bank_account_name',
+            'gigtune_artist_bank_account_number',
+            'gigtune_artist_bank_name',
+            'gigtune_artist_branch_code',
+            'gigtune_artist_bank_code',
+        ])[$profileId] ?? [];
+        $terms = $this->termMap([$profileId]);
+        $performerCount = count($terms[$profileId]['performer_type'] ?? []);
+
+        $profileName = trim((string) ($profile->post_title ?? ''));
+        $profileBio = trim((string) ($profile->post_content ?? ''));
+        $baseArea = trim((string) ($meta['gigtune_artist_base_area'] ?? ''));
+        $travelRadius = (int) ($meta['gigtune_artist_travel_radius_km'] ?? 0);
+        $priceMin = (int) ($meta['gigtune_artist_price_min'] ?? 0);
+        $priceMax = (int) ($meta['gigtune_artist_price_max'] ?? 0);
+        $days = $this->days((string) ($meta['gigtune_artist_availability_days'] ?? ''));
+        $startTime = trim((string) ($meta['gigtune_artist_availability_start_time'] ?? ''));
+        $endTime = trim((string) ($meta['gigtune_artist_availability_end_time'] ?? ''));
+
+        if ($profileName === '') {
+            $missing['profile_name'] = ['message' => 'Add your profile name.', 'url' => '/artist-profile-edit/'];
+        }
+        if ($profileBio === '') {
+            $missing['profile_bio'] = ['message' => 'Add your profile bio.', 'url' => '/artist-profile-edit/'];
+        }
+        if ($performerCount < 1) {
+            $missing['performer_type'] = ['message' => 'Select at least one performer type.', 'url' => '/artist-profile-edit/'];
+        }
+        if ($baseArea === '') {
+            $missing['base_area'] = ['message' => 'Set your base area.', 'url' => '/artist-profile-edit/'];
+        }
+        if ($travelRadius <= 0) {
+            $missing['travel_radius'] = ['message' => 'Set a valid travel radius.', 'url' => '/artist-profile-edit/'];
+        }
+        if ($priceMin < 0 || $priceMax <= 0 || $priceMin > $priceMax) {
+            $missing['pricing'] = ['message' => 'Set a valid minimum and maximum price range.', 'url' => '/artist-profile-edit/'];
+        }
+        if ($days === []) {
+            $missing['availability_days'] = ['message' => 'Select at least one availability day.', 'url' => '/artist-profile-edit/'];
+        }
+        if (preg_match('/^\d{2}:\d{2}$/', $startTime) !== 1 || preg_match('/^\d{2}:\d{2}$/', $endTime) !== 1) {
+            $missing['availability_time'] = ['message' => 'Set valid availability start and end times.', 'url' => '/artist-profile-edit/'];
+        }
+
+        if ($context === 'artist_payout_ready') {
+            $bankAccountName = trim((string) ($meta['gigtune_artist_bank_account_name'] ?? ''));
+            $bankAccountNumber = preg_replace('/\s+/', '', (string) ($meta['gigtune_artist_bank_account_number'] ?? '')) ?? '';
+            $bankName = trim((string) ($meta['gigtune_artist_bank_name'] ?? ''));
+            $branchCode = trim((string) ($meta['gigtune_artist_branch_code'] ?? ''));
+            if ($branchCode === '') {
+                $branchCode = trim((string) ($meta['gigtune_artist_bank_code'] ?? ''));
+            }
+
+            if ($bankAccountName === '' || $bankAccountNumber === '' || $bankName === '' || $branchCode === '') {
+                $missing['bank_fields'] = ['message' => 'Complete payout bank details.', 'url' => '/artist-profile-edit/'];
+            } elseif (preg_match('/^\d{6,20}$/', $bankAccountNumber) !== 1) {
+                $missing['bank_account_number'] = ['message' => 'Bank account number must contain only digits.', 'url' => '/artist-profile-edit/'];
+            }
+        }
+
+        return $missing;
+    }
+
+    /** @param array<string,array{message:string,url:string}> $requirements */
+    private function renderMissingRequirementsPanel(string $title, array $requirements): string
+    {
+        if ($requirements === []) {
+            return '';
+        }
+
+        $html = '<div class="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-6">';
+        $html .= '<h3 class="text-lg font-semibold text-amber-100">' . e($title) . '</h3>';
+        $html .= '<p class="mt-2 text-sm text-amber-100/90">Complete the items below to unlock all actions.</p>';
+        $html .= '<ul class="mt-3 space-y-2 text-sm text-amber-50">';
+        foreach ($requirements as $item) {
+            $message = trim((string) ($item['message'] ?? 'Requirement missing.'));
+            $url = trim((string) ($item['url'] ?? ''));
+            if ($message === '') {
+                $message = 'Requirement missing.';
+            }
+            $html .= '<li class="flex items-start gap-2"><span aria-hidden="true">&bull;</span>';
+            if ($url !== '') {
+                $html .= '<a href="' . e($url) . '" class="underline decoration-amber-200/70 hover:text-white">' . e($message) . '</a>';
+            } else {
+                $html .= '<span>' . e($message) . '</span>';
+            }
+            $html .= '</li>';
+        }
+        $html .= '</ul></div>';
+
+        return $html;
+    }
+
+    /** @param array<string,array{message:string,url:string}> $requirements */
+    private function firstMissingRequirementMessage(array $requirements, string $fallback): string
+    {
+        foreach ($requirements as $item) {
+            $message = trim((string) ($item['message'] ?? ''));
+            if ($message !== '') {
+                return $message;
+            }
+        }
+        return $fallback;
     }
 
     private function bookArtistFormUrl(int $artistId = 0): string

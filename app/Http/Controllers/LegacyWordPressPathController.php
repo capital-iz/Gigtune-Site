@@ -54,8 +54,11 @@ class LegacyWordPressPathController extends Controller
             $request->session()->invalidate();
             $request->session()->regenerateToken();
 
-            $redirectTo = (string) $request->query('redirect_to', '/');
-            return redirect($redirectTo !== '' ? $redirectTo : '/', 302);
+            $redirectTo = trim((string) $request->query('redirect_to', '/'));
+            if ($redirectTo === '' || !str_starts_with($redirectTo, '/') || str_starts_with($redirectTo, '//')) {
+                $redirectTo = '/';
+            }
+            return redirect($redirectTo, 302);
         }
 
         if ($action === 'lostpassword') {

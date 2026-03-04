@@ -5,6 +5,8 @@
   <meta charset="<?php bloginfo('charset'); ?>">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#0f172a">
+  <link rel="icon" type="image/png" sizes="32x32" href="<?php echo esc_url(trailingslashit(get_template_directory_uri()) . 'assets/img/gigtune-logo-bp.png'); ?>">
+  <link rel="shortcut icon" href="<?php echo esc_url(home_url('/favicon.ico')); ?>">
   <link rel="manifest" href="<?php echo esc_url(home_url('/manifest.webmanifest')); ?>">
   <link rel="apple-touch-icon" href="<?php echo esc_url(trailingslashit(get_template_directory_uri()) . 'assets/img/gigtune-logo-bp.png'); ?>">
   <?php wp_head(); ?>

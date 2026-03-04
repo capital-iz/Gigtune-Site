@@ -520,7 +520,7 @@ if (!function_exists('wp_logout_url')) {
     function wp_logout_url(string $redirect = ''): string
     {
         $target = $redirect !== '' ? $redirect : home_url('/');
-        return '/wp-login.php?action=logout&redirect_to=' . rawurlencode($target);
+        return '/sign-out/?redirect_to=' . rawurlencode($target);
     }
 }
 

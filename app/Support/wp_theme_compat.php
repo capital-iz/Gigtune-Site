@@ -728,8 +728,8 @@ if (!function_exists('wp_login_url')) {
     function wp_login_url(string $redirect = ''): string
     {
         return $redirect !== ''
-            ? '/wp-login.php?redirect_to=' . rawurlencode($redirect)
-            : '/wp-login.php';
+            ? '/sign-in/?redirect_to=' . rawurlencode($redirect)
+            : '/sign-in/';
     }
 }
 

@@ -51,6 +51,10 @@ class SitePageController extends Controller
             return redirect((string) ($currentUser['dashboard_url'] ?? '/'), 302);
         }
 
+        if (in_array($slug, ['login', 'sign-in'], true) && strtoupper($request->method()) === 'POST') {
+            return $this->handleSignIn($request);
+        }
+
         if ($slug === 'join' && strtoupper($request->method()) === 'POST') {
             $result = $this->handleJoin($request);
             if ($result instanceof RedirectResponse) {
@@ -349,6 +353,30 @@ class SitePageController extends Controller
 
         $dashboard = $role === 'gigtune_artist' ? '/artist-dashboard/' : '/client-dashboard/';
         return redirect($dashboard, 302);
+    }
+
+    private function handleSignIn(Request $request): RedirectResponse
+    {
+        $identifier = trim((string) $request->input('log', ''));
+        $password = (string) $request->input('pwd', '');
+
+        $user = $this->users->verifyCredentials($identifier, $password);
+        if (!is_array($user)) {
+            return redirect('/sign-in/?login=failed', 302);
+        }
+
+        $request->session()->put('gigtune_auth_user_id', (int) ($user['id'] ?? 0));
+        $request->session()->put('gigtune_auth_logged_in_at', now()->toIso8601String());
+        $request->session()->put('gigtune_auth_remember', trim((string) $request->input('rememberme', '')) !== '');
+        $request->session()->regenerate();
+
+        $fallback = (string) ($user['dashboard_url'] ?? '/');
+        $redirectTo = trim((string) $request->input('redirect_to', ''));
+        if ($redirectTo === '' || str_contains($redirectTo, '/sign-in') || str_contains($redirectTo, '/login')) {
+            $redirectTo = $fallback;
+        }
+
+        return redirect($this->safeRedirectPath($redirectTo, $fallback), 302);
     }
 
     private function ensureRoleProfile(int $userId, string $role, string $name, string $email): void

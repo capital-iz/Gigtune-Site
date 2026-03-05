@@ -1,0 +1,275 @@
+{
+    "passed": false,
+    "source_counts": {
+        "plugin_php_files": 2,
+        "shortcodes": 39,
+        "rest_routes": 28,
+        "ajax_actions": 1,
+        "post_types": 11,
+        "meta_keys": 300,
+        "theme_files": 57
+    },
+    "laravel_counts": {
+        "logic_php_files": 78,
+        "shortcodes": 40,
+        "rest_routes": 33,
+        "ajax_actions": 4,
+        "post_types": 15,
+        "meta_keys": 566,
+        "public_theme_files": 57,
+        "resource_theme_files": 57
+    },
+    "diff": {
+        "missing_rest_routes": [],
+        "missing_shortcodes": [],
+        "missing_ajax_actions": [],
+        "missing_post_types": [],
+        "missing_meta_keys_count": 0,
+        "missing_meta_keys_sample": [],
+        "critical_statuses": {
+            "gigtune_payment_status": {
+                "source": [
+                    "awaiting_payment_confirmation",
+                    "confirmed_held_pending_completion",
+                    "pending",
+                    "rejected_payment",
+                    "unpaid"
+                ],
+                "laravel": [
+                    "awaiting_payment_confirmation",
+                    "confirmed_held_pending_completion",
+                    "failed",
+                    "pending",
+                    "refunded_partial",
+                    "rejected_payment",
+                    "unpaid"
+                ],
+                "missing_in_laravel": [],
+                "extra_in_laravel": [
+                    "failed",
+                    "refunded_partial"
+                ]
+            },
+            "gigtune_payout_status": {
+                "source": [
+                    "failed",
+                    "paid",
+                    "pending_manual"
+                ],
+                "laravel": [
+                    "failed",
+                    "paid",
+                    "pending",
+                    "pending_manual"
+                ],
+                "missing_in_laravel": [],
+                "extra_in_laravel": [
+                    "pending"
+                ]
+            },
+            "gigtune_refund_status": {
+                "source": [],
+                "laravel": [
+                    "pending",
+                    "rejected",
+                    "requested",
+                    "succeeded"
+                ],
+                "missing_in_laravel": [],
+                "extra_in_laravel": [
+                    "pending",
+                    "rejected",
+                    "requested",
+                    "succeeded"
+                ]
+            },
+            "gigtune_dispute_status": {
+                "source": [
+                    "open"
+                ],
+                "laravel": [
+                    "open"
+                ],
+                "missing_in_laravel": [],
+                "extra_in_laravel": []
+            },
+            "gigtune_booking_status": {
+                "source": [
+                    "accepted_pending_payment",
+                    "completed_by_artist",
+                    "completed_confirmed",
+                    "dispute_open",
+                    "requested"
+                ],
+                "laravel": [
+                    "accepted_pending_payment",
+                    "cancelled_by_artist",
+                    "cancelled_by_client",
+                    "completed_by_artist",
+                    "completed_confirmed",
+                    "dispute_open",
+                    "paid_escrowed",
+                    "payment_timeout",
+                    "rejected",
+                    "requested"
+                ],
+                "missing_in_laravel": [],
+                "extra_in_laravel": [
+                    "cancelled_by_artist",
+                    "cancelled_by_client",
+                    "paid_escrowed",
+                    "payment_timeout",
+                    "rejected"
+                ]
+            },
+            "gigtune_kyc_status": {
+                "source": [],
+                "laravel": [
+                    "pending"
+                ],
+                "missing_in_laravel": [],
+                "extra_in_laravel": [
+                    "pending"
+                ]
+            },
+            "gigtune_kyc_decision": {
+                "source": [
+                    "pending"
+                ],
+                "laravel": [
+                    "pending"
+                ],
+                "missing_in_laravel": [],
+                "extra_in_laravel": []
+            }
+        }
+    },
+    "theme_parity": {
+        "public": {
+            "missing_files": [],
+            "extra_files": [],
+            "hash_mismatch_files": [
+                "404.php",
+                "assets/css/tailwind.css",
+                "assets/img/gigtune-logo-bp.png",
+                "footer.php",
+                "front-page.php",
+                "functions.php",
+                "header.php",
+                "index.php",
+                "manifest.webmanifest",
+                "page-about-us.php",
+                "page-acceptable-use-policy.php",
+                "page-admin-maintenance.php",
+                "page-admin-test-page.php",
+                "page-artist-availability.php",
+                "page-artist-dashboard.php",
+                "page-artist-profile-edit.php",
+                "page-book-an-artist.php",
+                "page-book-artist-form.php",
+                "page-browse-artists.php",
+                "page-browse-clients.php",
+                "page-cart.php",
+                "page-checkout.php",
+                "page-client-dashboard.php",
+                "page-client-profile-edit.php",
+                "page-client-profile.php",
+                "page-cookie-policy.php",
+                "page-how-it-works.php",
+                "page-join.php",
+                "page-kyc-status.php",
+                "page-kyc.php",
+                "page-login.php",
+                "page-logout.php",
+                "page-messages.php",
+                "page-my-account-page.php",
+                "page-notification-settings.php",
+                "page-notifications-archive.php",
+                "page-notifications.php",
+                "page-posts-page.php",
+                "page-pricing.php",
+                "page-privacy-policy.php",
+                "page-public-profile.php",
+                "page-register.php",
+                "page-return-policy.php",
+                "page-security-centre.php",
+                "page-sign-in.php",
+                "page-support-contact.php",
+                "page-terms-and-conditions.php",
+                "page-user.php",
+                "page.php",
+                "service-worker.js",
+                "style.css",
+                "template-parts/footer.php",
+                "template-parts/navbar.php"
+            ],
+            "hash_mismatch_compat_excluded": [
+                "page-artist-profile.php",
+                "page-artists.php"
+            ]
+        },
+        "resources": {
+            "missing_files_count": 0,
+            "missing_files_sample": [],
+            "extra_files": [],
+            "hash_mismatch_files": [
+                "404.php",
+                "assets/css/tailwind.css",
+                "footer.php",
+                "front-page.php",
+                "functions.php",
+                "header.php",
+                "index.php",
+                "manifest.webmanifest",
+                "page-about-us.php",
+                "page-acceptable-use-policy.php",
+                "page-admin-maintenance.php",
+                "page-admin-test-page.php",
+                "page-artist-availability.php",
+                "page-artist-dashboard.php",
+                "page-artist-profile-edit.php",
+                "page-book-an-artist.php",
+                "page-book-artist-form.php",
+                "page-browse-artists.php",
+                "page-browse-clients.php",
+                "page-cart.php",
+                "page-checkout.php",
+                "page-client-dashboard.php",
+                "page-client-profile-edit.php",
+                "page-client-profile.php",
+                "page-cookie-policy.php",
+                "page-how-it-works.php",
+                "page-join.php",
+                "page-kyc-status.php",
+                "page-kyc.php",
+                "page-login.php",
+                "page-logout.php",
+                "page-messages.php",
+                "page-my-account-page.php",
+                "page-notification-settings.php",
+                "page-notifications-archive.php",
+                "page-notifications.php",
+                "page-posts-page.php",
+                "page-pricing.php",
+                "page-privacy-policy.php",
+                "page-public-profile.php",
+                "page-register.php",
+                "page-return-policy.php",
+                "page-security-centre.php",
+                "page-sign-in.php",
+                "page-support-contact.php",
+                "page-terms-and-conditions.php",
+                "page-user.php",
+                "page.php",
+                "service-worker.js",
+                "style.css",
+                "template-parts/footer.php",
+                "template-parts/navbar.php"
+            ],
+            "hash_mismatch_compat_excluded": [
+                "page-artist-profile.php",
+                "page-artists.php"
+            ]
+        }
+    }
+}

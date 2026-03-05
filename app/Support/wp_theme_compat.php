@@ -1,6 +1,7 @@
 <?php
 
 use App\Support\WpThemeRuntime;
+use App\Support\GigTuneCoreFunctionBridge;
 
 if (!class_exists('WP_Error')) {
     class WP_Error
@@ -38,6 +39,16 @@ if (!class_exists('WP_User')) {
             $this->roles = is_array($data['roles'] ?? null) ? array_values($data['roles']) : [];
         }
     }
+}
+
+if (!class_exists(GigTuneCoreFunctionBridge::class)) {
+    $bridgePath = app_path('Support/GigTuneCoreFunctionBridge.php');
+    if (is_file($bridgePath)) {
+        require_once $bridgePath;
+    }
+}
+if (class_exists(GigTuneCoreFunctionBridge::class)) {
+    GigTuneCoreFunctionBridge::registerRuntimeFunctions();
 }
 
 if (!function_exists('gigtune_wp_hook_store')) {

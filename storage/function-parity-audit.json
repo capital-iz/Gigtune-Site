@@ -1,0 +1,11 @@
+{
+    "passed": true,
+    "source_file": "C:/Users/reama/Soft Dev/Gigtune/Wordpress/gigtune.africa/public_html\\wp-content\\plugins\\gigtune-core\\gigtune-core.php",
+    "source_function_count": 690,
+    "direct_laravel_function_count": 41,
+    "direct_covered_count": 4,
+    "bridge_covered_count": 690,
+    "total_covered_count": 690,
+    "missing_count": 0,
+    "missing_functions": []
+}

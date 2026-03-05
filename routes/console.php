@@ -654,6 +654,108 @@ Artisan::command('gigtune:parity-audit', function () {
     return empty($missingRoutes) && empty($missingShortcodes) ? 0 : 2;
 })->purpose('Audit gigtune-core REST and shortcode parity against Laravel routes');
 
+Artisan::command('gigtune:function-parity-audit {--json=}', function () {
+    $root = rtrim((string) config('gigtune.wordpress.root', ''), '\\/');
+    $sourceFile = $root . DIRECTORY_SEPARATOR . 'wp-content' . DIRECTORY_SEPARATOR . 'plugins' . DIRECTORY_SEPARATOR . 'gigtune-core' . DIRECTORY_SEPARATOR . 'gigtune-core.php';
+    if (!is_file($sourceFile)) {
+        $this->error('Source function file not found: ' . $sourceFile);
+        return 1;
+    }
+
+    $source = @file_get_contents($sourceFile);
+    if (!is_string($source) || $source === '') {
+        $this->error('Unable to read source function file: ' . $sourceFile);
+        return 1;
+    }
+
+    preg_match_all('/^\s*function\s+(gigtune_[a-zA-Z0-9_]+)\s*\(/m', $source, $sourceMatches);
+    $sourceFunctions = array_values(array_unique(array_map(static fn ($v): string => trim((string) $v), $sourceMatches[1] ?? [])));
+    sort($sourceFunctions);
+
+    $collectPhpFiles = static function (array $dirs): array {
+        $files = [];
+        foreach ($dirs as $dir) {
+            if (!is_dir($dir)) {
+                continue;
+            }
+            $it = new RecursiveIteratorIterator(new RecursiveDirectoryIterator($dir, FilesystemIterator::SKIP_DOTS));
+            foreach ($it as $info) {
+                if (!$info instanceof SplFileInfo || !$info->isFile()) {
+                    continue;
+                }
+                if (strtolower((string) $info->getExtension()) !== 'php') {
+                    continue;
+                }
+                $files[] = $info->getPathname();
+            }
+        }
+        $files = array_values(array_unique($files));
+        sort($files);
+        return $files;
+    };
+
+    $laravelFiles = $collectPhpFiles([
+        app_path(),
+        base_path('routes'),
+        resource_path('wp-theme/gigtune-canon'),
+        public_path('wp-content/themes/gigtune-canon'),
+    ]);
+
+    $laravelFunctions = [];
+    foreach ($laravelFiles as $file) {
+        $text = @file_get_contents($file);
+        if (!is_string($text) || $text === '') {
+            continue;
+        }
+        preg_match_all('/^\s*function\s+(gigtune_[a-zA-Z0-9_]+)\s*\(/m', $text, $fnMatches);
+        foreach (($fnMatches[1] ?? []) as $fn) {
+            $laravelFunctions[] = trim((string) $fn);
+        }
+    }
+    $laravelFunctions = array_values(array_unique(array_filter($laravelFunctions, static fn ($v): bool => $v !== '')));
+    sort($laravelFunctions);
+
+    $directCovered = array_values(array_intersect($sourceFunctions, $laravelFunctions));
+    sort($directCovered);
+
+    $bridgeCovered = [];
+    if (class_exists(\App\Support\GigTuneCoreFunctionBridge::class)) {
+        $bridgeCovered = \App\Support\GigTuneCoreFunctionBridge::sourceFunctionNames();
+    }
+    $bridgeCovered = array_values(array_unique(array_intersect($sourceFunctions, $bridgeCovered)));
+    sort($bridgeCovered);
+
+    $covered = array_values(array_unique(array_merge($directCovered, $bridgeCovered)));
+    sort($covered);
+    $missing = array_values(array_diff($sourceFunctions, $covered));
+    sort($missing);
+
+    $report = [
+        'passed' => empty($missing),
+        'source_file' => $sourceFile,
+        'source_function_count' => count($sourceFunctions),
+        'direct_laravel_function_count' => count($laravelFunctions),
+        'direct_covered_count' => count($directCovered),
+        'bridge_covered_count' => count($bridgeCovered),
+        'total_covered_count' => count($covered),
+        'missing_count' => count($missing),
+        'missing_functions' => $missing,
+    ];
+
+    $jsonPath = trim((string) $this->option('json'));
+    if ($jsonPath !== '') {
+        $targetPath = str_starts_with($jsonPath, DIRECTORY_SEPARATOR)
+            || preg_match('/^[A-Za-z]:[\\\\\\/]/', $jsonPath) === 1
+            ? $jsonPath
+            : base_path($jsonPath);
+        @file_put_contents($targetPath, json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+        $this->info('Wrote function parity report: ' . $targetPath);
+    }
+
+    $this->line(json_encode($report, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES));
+    return empty($missing) ? 0 : 2;
+})->purpose('Audit every gigtune-core.php function against Laravel equivalents and runtime bridge coverage');
+
 Artisan::command('gigtune:full-scope-audit {--json=} {--sample=40}', function () {
     $root = rtrim((string) config('gigtune.wordpress.root', ''), '\\/');
     $pluginDir = $root . DIRECTORY_SEPARATOR . 'wp-content' . DIRECTORY_SEPARATOR . 'plugins' . DIRECTORY_SEPARATOR . 'gigtune-core';

@@ -2917,6 +2917,40 @@ class AdminPortalController extends Controller
         return $map;
     }
 
+    /**
+     * @param array<int,int> $postIds
+     * @param array<int,string> $metaKeys
+     * @return array<int,array<string,mixed>>
+     */
+    private function postMetaMap(array $postIds, array $metaKeys): array
+    {
+        if ($postIds === [] || $metaKeys === []) {
+            return [];
+        }
+
+        $rows = $this->wordpressDb()
+            ->table($this->tablePrefix() . 'postmeta')
+            ->select(['post_id', 'meta_key', 'meta_value', 'meta_id'])
+            ->whereIn('post_id', $postIds)
+            ->whereIn('meta_key', $metaKeys)
+            ->orderByDesc('meta_id')
+            ->get();
+
+        $map = [];
+        foreach ($rows as $row) {
+            $postId = (int) $row->post_id;
+            $metaKey = (string) $row->meta_key;
+            if (!isset($map[$postId])) {
+                $map[$postId] = [];
+            }
+            if (!array_key_exists($metaKey, $map[$postId])) {
+                $map[$postId][$metaKey] = $this->decodeMaybeSerialized((string) $row->meta_value);
+            }
+        }
+
+        return $map;
+    }
+
     private function getLatestPostMetaValue(int $postId, string $metaKey): string
     {
         $value = $this->wordpressDb()
@@ -3053,12 +3087,16 @@ class AdminPortalController extends Controller
         $posts = $this->tablePrefix() . 'posts';
         $nowLocal = now();
         $nowUtc = now('UTC');
+        $title = function_exists('mb_substr')
+            ? mb_substr($message, 0, 255)
+            : substr($message, 0, 255);
+
         $notificationId = (int) $db->table($posts)->insertGetId([
             'post_author' => 0,
             'post_date' => $nowLocal->format('Y-m-d H:i:s'),
             'post_date_gmt' => $nowUtc->format('Y-m-d H:i:s'),
             'post_content' => '',
-            'post_title' => mb_substr($message, 0, 255),
+            'post_title' => $title,
             'post_excerpt' => '',
             'post_status' => 'publish',
             'comment_status' => 'closed',

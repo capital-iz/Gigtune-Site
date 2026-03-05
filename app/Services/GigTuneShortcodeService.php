@@ -1872,6 +1872,10 @@ class GigTuneShortcodeService
         if ($artistId <= 0) {
             $artistId = (int) ($request?->query('artist_id', 0) ?? 0);
         }
+        $sourcePsaId = (int) ($a['psa_id'] ?? 0);
+        if ($sourcePsaId <= 0) {
+            $sourcePsaId = (int) ($request?->query('psa_id', $request?->query('post_ref', 0)) ?? 0);
+        }
 
         $success = (string) ($request?->query('booking_success', '') ?? '');
         $bookingId = (int) ($request?->query('booking_id', 0) ?? 0);
@@ -1901,6 +1905,7 @@ class GigTuneShortcodeService
 
         if ($isSubmit) {
             $artistIdInput = (int) $request->input('artist_id', $request->input('gigtune_booking_artist_profile_id', $artistId));
+            $sourcePsaId = (int) $request->input('gigtune_source_psa_id', $sourcePsaId);
             if ($artistId <= 0) {
                 $artistId = $artistIdInput;
             }
@@ -1997,6 +2002,20 @@ class GigTuneShortcodeService
                                         $errorList = [$errorMessage];
                                         $firstErrorField = 'gigtune-booking-event-date';
                                     }
+                                    if ($error === '') {
+                                        $artistPricing = is_array($artist['pricing'] ?? null) ? $artist['pricing'] : [];
+                                        $artistMinimum = max(
+                                            0,
+                                            (int) round((float) ($artistPricing['min'] ?? ($artistMeta['gigtune_artist_price_min'] ?? 0)))
+                                        );
+                                        $submittedBudget = max(0, (int) $values['budget']);
+                                        if ($artistMinimum > 0 && $submittedBudget < $artistMinimum) {
+                                            $error = '1';
+                                            $errorMessage = 'Booking budget must be at least the artist minimum price (ZAR ' . number_format($artistMinimum) . ').';
+                                            $errorList = [$errorMessage];
+                                            $firstErrorField = 'budget';
+                                        }
+                                    }
                                 }
                             }
 
@@ -2059,6 +2078,9 @@ class GigTuneShortcodeService
                                 $this->upsertPostMeta($bookingId, 'gigtune_escrow_amount', '0');
                                 $this->upsertPostMeta($bookingId, 'gigtune_dispute_raised', '0');
                                 $this->upsertPostMeta($bookingId, 'gigtune_booking_currency', 'ZAR');
+                                if ($sourcePsaId > 0) {
+                                    $this->upsertPostMeta($bookingId, 'gigtune_booking_source_psa_id', (string) $sourcePsaId);
+                                }
                                 if ($budgetInt > 0) {
                                     $this->upsertPostMeta($bookingId, 'gigtune_booking_budget', (string) $budgetInt);
                                     $this->upsertPostMeta($bookingId, 'gigtune_booking_quote_amount', (string) $budgetInt);
@@ -2093,6 +2115,26 @@ class GigTuneShortcodeService
                                     'Booking request #' . $bookingId . ' submitted successfully. The artist has been notified.',
                                     ['object_type' => 'booking', 'object_id' => $bookingId, 'artist_profile_id' => $artistIdInput]
                                 );
+                                $sourceIsPsa = $sourcePsaId > 0 && $this->db()->table($this->posts())
+                                    ->where('ID', $sourcePsaId)
+                                    ->where('post_type', 'gigtune_psa')
+                                    ->exists();
+                                if ($sourceIsPsa) {
+                                    $psaClientUserId = (int) $this->getLatestPostMeta($sourcePsaId, 'gigtune_psa_client_user_id');
+                                    if ($psaClientUserId <= 0 || $psaClientUserId === (int) ($u['id'] ?? 0)) {
+                                        $this->upsertPostMeta($sourcePsaId, 'gigtune_psa_status', 'closed');
+                                        $this->upsertPostMeta($sourcePsaId, 'gigtune_psa_closed_at', (string) $requestedTs);
+                                        $this->upsertPostMeta($sourcePsaId, 'gigtune_psa_closed_by_booking_id', (string) $bookingId);
+                                        if ($psaClientUserId > 0) {
+                                            $this->createNotification(
+                                                $psaClientUserId,
+                                                'booking',
+                                                'Client post #' . $sourcePsaId . ' was automatically closed after booking #' . $bookingId . ' was created.',
+                                                ['object_type' => 'psa', 'object_id' => $sourcePsaId]
+                                            );
+                                        }
+                                    }
+                                }
 
                                 $success = '1';
                                 $error = '';
@@ -2188,7 +2230,7 @@ class GigTuneShortcodeService
 
         $provinces = $this->saProvinces();
         $html .= '<form method="post" action="' . e($this->bookArtistFormUrl($artistId)) . '" class="space-y-4">';
-        $html .= '<input type="hidden" name="gigtune_book_artist_submit" value="1"><input type="hidden" name="gigtune_action" value="book_artist"><input type="hidden" name="artist_id" value="' . e((string) $artistId) . '">';
+        $html .= '<input type="hidden" name="gigtune_book_artist_submit" value="1"><input type="hidden" name="gigtune_action" value="book_artist"><input type="hidden" name="artist_id" value="' . e((string) $artistId) . '"><input type="hidden" name="gigtune_source_psa_id" value="' . e((string) max(0, $sourcePsaId)) . '">';
         $html .= '<style>.gigtune-site-select,.gigtune-site-select option{background-color:#020617;color:#e2e8f0;}</style>';
         $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Event date &amp; time <span class="text-xs text-rose-300">Required</span></label><div data-role="gigtune-datetime-wrap" class="rounded-xl bg-slate-950/30 border border-white/10 p-1 cursor-pointer"><input id="gigtune-booking-event-date" data-role="gigtune-datetime-input" type="datetime-local" name="event_date" required value="' . e($values['event_date']) . '" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div></div>';
         $html .= '<div class="space-y-3"><label class="block text-sm font-semibold text-slate-200 mb-1">Event location / address <span class="text-xs text-rose-300">Required</span></label><div class="grid gap-3 md:grid-cols-2">';
@@ -2312,6 +2354,10 @@ class GigTuneShortcodeService
                 $nowMysql = now()->format('Y-m-d H:i:s');
                 $paymentWindowHours = 24;
                 $rejectReason = trim((string) $request->input('gigtune_booking_reject_reason', ''));
+                $disputeSubject = trim((string) $request->input('gigtune_dispute_subject', ''));
+                $disputeBody = trim((string) $request->input('gigtune_dispute_text', ''));
+                $threadMessage = trim((string) $request->input('gigtune_booking_thread_message', ''));
+                $threadSubject = trim((string) $request->input('gigtune_booking_thread_subject', ''));
 
                 if (!$this->verifyWpNonce($nonce, 'gigtune_booking_action')) {
                     $errorMessage = 'Security check failed.';
@@ -2511,6 +2557,8 @@ class GigTuneShortcodeService
                         $errorMessage = 'Only booking participants can raise a dispute.';
                     } elseif ((string) ($bookingMeta['gigtune_dispute_raised'] ?? '') === '1') {
                         $errorMessage = 'A dispute is already open for this booking.';
+                    } elseif ($disputeSubject === '' || $disputeBody === '') {
+                        $errorMessage = 'Dispute subject and details are required.';
                     } else {
                         $ts = now();
                         $this->upsertPostMeta($bookingId, 'gigtune_dispute_raised', '1');
@@ -2521,8 +2569,8 @@ class GigTuneShortcodeService
                             'post_author' => $uid,
                             'post_date' => $ts->format('Y-m-d H:i:s'),
                             'post_date_gmt' => now('UTC')->format('Y-m-d H:i:s'),
-                            'post_content' => '',
-                            'post_title' => 'Dispute for booking #' . $bookingId,
+                            'post_content' => $disputeBody,
+                            'post_title' => $disputeSubject,
                             'post_status' => 'publish',
                             'comment_status' => 'closed',
                             'ping_status' => 'closed',
@@ -2538,13 +2586,21 @@ class GigTuneShortcodeService
                             $this->upsertPostMeta($disputeId, 'gigtune_dispute_initiator_user_id', (string) $uid);
                             $this->upsertPostMeta($disputeId, 'gigtune_dispute_initiator_role', $initiatorRole);
                             $this->upsertPostMeta($disputeId, 'gigtune_dispute_created_at', (string) $ts->timestamp);
+                            $this->upsertPostMeta($disputeId, 'gigtune_dispute_subject', $disputeSubject);
+                            $this->upsertPostMeta($disputeId, 'gigtune_dispute_text', $disputeBody);
                         }
 
                         if ($clientUserId > 0 && $clientUserId !== $uid) {
-                            $this->createNotification($clientUserId, 'dispute', 'A dispute was opened for booking #' . $bookingId . '.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                            $this->createNotification($clientUserId, 'dispute', 'A dispute was opened for booking #' . $bookingId . ': ' . $disputeSubject, ['object_type' => 'booking', 'object_id' => $bookingId]);
                         }
                         if ($artistOwnerId > 0 && $artistOwnerId !== $uid) {
-                            $this->createNotification($artistOwnerId, 'dispute', 'A dispute was opened for booking #' . $bookingId . '.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                            $this->createNotification($artistOwnerId, 'dispute', 'A dispute was opened for booking #' . $bookingId . ': ' . $disputeSubject, ['object_type' => 'booking', 'object_id' => $bookingId]);
+                        }
+                        foreach ($this->adminUserIds() as $adminUserId) {
+                            if ($adminUserId <= 0) {
+                                continue;
+                            }
+                            $this->createNotification($adminUserId, 'dispute', 'New dispute on booking #' . $bookingId . ': ' . $disputeSubject, ['object_type' => 'booking', 'object_id' => $bookingId]);
                         }
                         $statusMessage = 'Dispute opened.';
                     }
@@ -2562,6 +2618,59 @@ class GigTuneShortcodeService
                             $this->createNotification($adminUserId, 'refund', 'Refund request submitted for booking #' . $bookingId . '.', ['object_type' => 'booking', 'object_id' => $bookingId]);
                         }
                         $statusMessage = 'Refund request submitted.';
+                    }
+                } elseif ($action === 'send_message') {
+                    if (!$isClientOwner && !$isArtistOwner && !$isAdmin) {
+                        $errorMessage = 'Only booking participants can send messages.';
+                    } elseif ($threadMessage === '') {
+                        $errorMessage = 'Message cannot be empty.';
+                    } else {
+                        $messageSubject = $threadSubject !== '' ? $threadSubject : ('Booking #' . $bookingId . ' message');
+                        $messageId = (int) $this->db()->table($this->posts())->insertGetId([
+                            'post_author' => $uid,
+                            'post_date' => $nowMysql,
+                            'post_date_gmt' => now('UTC')->format('Y-m-d H:i:s'),
+                            'post_content' => $threadMessage,
+                            'post_title' => $messageSubject,
+                            'post_status' => 'publish',
+                            'comment_status' => 'closed',
+                            'ping_status' => 'closed',
+                            'post_name' => 'gigtune-message-' . $bookingId . '-' . now()->format('YmdHis') . '-' . random_int(100, 999),
+                            'post_modified' => $nowMysql,
+                            'post_modified_gmt' => now('UTC')->format('Y-m-d H:i:s'),
+                            'post_type' => 'gigtune_message',
+                        ]);
+                        if ($messageId <= 0) {
+                            $errorMessage = 'Unable to send message.';
+                        } else {
+                            $this->upsertPostMeta($messageId, 'gigtune_message_booking_id', (string) $bookingId);
+                            $this->upsertPostMeta($messageId, 'gigtune_message_sender_user_id', (string) $uid);
+                            $recipientIds = [];
+                            if ($isAdmin) {
+                                if ($clientUserId > 0 && $clientUserId !== $uid) {
+                                    $recipientIds[] = $clientUserId;
+                                }
+                                if ($artistOwnerId > 0 && $artistOwnerId !== $uid) {
+                                    $recipientIds[] = $artistOwnerId;
+                                }
+                            } elseif ($isClientOwner && $artistOwnerId > 0) {
+                                $recipientIds[] = $artistOwnerId;
+                            } elseif ($isArtistOwner && $clientUserId > 0) {
+                                $recipientIds[] = $clientUserId;
+                            }
+                            foreach (array_values(array_unique($recipientIds)) as $recipientId) {
+                                $this->upsertPostMeta($messageId, 'gigtune_message_recipient_user_id', (string) $recipientId);
+                                $this->createNotification($recipientId, 'message', 'New message on booking #' . $bookingId . '.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                            }
+                            if (!$isAdmin) {
+                                foreach ($this->adminUserIds() as $adminUserId) {
+                                    if ($adminUserId > 0 && $adminUserId !== $uid) {
+                                        $this->createNotification($adminUserId, 'message', 'New participant message on booking #' . $bookingId . '.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                                    }
+                                }
+                            }
+                            $statusMessage = 'Message sent.';
+                        }
                     }
                 }
 
@@ -2602,10 +2711,13 @@ class GigTuneShortcodeService
             if ($paymentReferenceHuman === '') {
                 $paymentReferenceHuman = $this->bookingPaymentReferenceHuman($bookingId, $clientUserId);
             }
+            $checkoutTotalCents = $this->bookingYocoAmountCents($bookingId);
+            $checkoutTotal = $checkoutTotalCents > 0 ? ($checkoutTotalCents / 100) : 0.0;
 
             $currentStatusRaw = strtoupper(trim((string) ($bookingMeta['gigtune_booking_status'] ?? '')));
             $paymentStatusRaw = strtoupper(trim((string) ($bookingMeta['gigtune_payment_status'] ?? '')));
             $yocoError = trim((string) ($request?->query('yoco_error', '') ?? ''));
+            $paymentResult = strtolower(trim((string) ($request?->query('payment_result', '') ?? '')));
 
             $html = '<div class="space-y-4">';
             if ($statusMessage !== '') {
@@ -2613,6 +2725,11 @@ class GigTuneShortcodeService
             }
             if ($errorMessage !== '') {
                 $html .= '<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">' . e($errorMessage) . '</div>';
+            }
+            if ($paymentResult === 'success') {
+                $html .= '<div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-200">Payment completed and submitted for confirmation.</div>';
+            } elseif (in_array($paymentResult, ['cancelled', 'failed'], true)) {
+                $html .= '<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">Payment was not completed. You can try card checkout again.</div>';
             }
             if ($redirectToYoco !== '') {
                 $redirectJson = json_encode($redirectToYoco, JSON_UNESCAPED_SLASHES);
@@ -2672,8 +2789,8 @@ class GigTuneShortcodeService
             if (($isClientOwner || $isAdmin) && $currentStatusRaw === 'ACCEPTED_PENDING_PAYMENT') {
                 $html .= '<div class="w-full rounded-xl border border-white/10 bg-black/20 p-4 space-y-3">';
                 $html .= '<p class="text-sm text-slate-200 font-semibold">Pay by card (YOCO)</p>';
-                if ($quoteAmount > 0) {
-                    $html .= '<p class="text-xs text-slate-300">Total: <span class="text-slate-100">ZAR ' . e(number_format($quoteAmount, 2)) . '</span></p>';
+                if ($checkoutTotal > 0) {
+                    $html .= '<p class="text-xs text-slate-300">Total: <span class="text-slate-100">ZAR ' . e(number_format($checkoutTotal, 2)) . '</span> <span class="text-slate-400">(includes 15% service fee)</span></p>';
                 }
                 $html .= '<p class="text-xs text-slate-300">Reference: <span class="text-slate-100 font-mono">' . e($paymentReferenceHuman) . '</span></p>';
                 if ($paymentWindowExpiresAtTs > 0) {
@@ -2696,7 +2813,7 @@ class GigTuneShortcodeService
                 } else {
                     $html .= '<form method="post" class="space-y-2">';
                     $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="pay_yoco">';
-                    $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-500">Pay with Card (YOCO)</button>';
+                    $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-xl px-5 py-2.5 text-sm font-semibold text-white shadow bg-gradient-to-r from-blue-600 via-sky-500 to-amber-400 hover:from-blue-500 hover:via-sky-400 hover:to-amber-300">Pay with Card (YOCO)</button>';
                     $html .= '<p class="text-xs text-slate-300">Secure checkout hosted by YOCO.</p>';
                     $html .= '</form>';
                 }
@@ -2731,9 +2848,7 @@ class GigTuneShortcodeService
                 $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Cancel as artist</button></form>';
             }
             if (($isClientOwner || $isArtistOwner || $isAdmin) && $currentStatusRaw !== 'DISPUTE_OPEN' && !in_array($currentStatusRaw, ['CANCELLED_BY_CLIENT', 'CANCELLED_BY_ARTIST'], true)) {
-                $html .= '<form method="post" class="inline-flex">';
-                $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="raise_dispute">';
-                $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-500">Open dispute</button></form>';
+                $html .= '<button type="button" data-gigtune-open-dispute="1" class="inline-flex items-center justify-center rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-500">Open dispute</button>';
             }
             if (($isClientOwner || $isAdmin) && in_array($paymentStatusRaw, ['PAID_ESCROWED', 'PAID', 'CONFIRMED_HELD_PENDING_COMPLETION', 'REFUNDED_PARTIAL'], true)) {
                 $html .= '<form method="post" class="inline-flex">';
@@ -2741,6 +2856,25 @@ class GigTuneShortcodeService
                 $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Request refund</button></form>';
             }
             $html .= '</div></div>';
+            if (($isClientOwner || $isArtistOwner || $isAdmin) && $currentStatusRaw !== 'DISPUTE_OPEN' && !in_array($currentStatusRaw, ['CANCELLED_BY_CLIENT', 'CANCELLED_BY_ARTIST'], true)) {
+                $html .= '<div data-gigtune-dispute-form="1" class="hidden rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">';
+                $html .= '<form method="post" class="space-y-3">';
+                $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="raise_dispute">';
+                $html .= '<div><label class="mb-1 block text-xs font-semibold text-amber-100">Subject</label><input type="text" name="gigtune_dispute_subject" required class="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white" placeholder="Brief dispute subject"></div>';
+                $html .= '<div><label class="mb-1 block text-xs font-semibold text-amber-100">Dispute details</label><textarea name="gigtune_dispute_text" rows="4" required class="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white" placeholder="Describe the issue for admin review"></textarea></div>';
+                $html .= '<div class="flex flex-wrap gap-2"><button type="submit" class="inline-flex items-center justify-center rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-500">Submit dispute</button><button type="button" data-gigtune-close-dispute="1" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Cancel</button></div>';
+                $html .= '</form></div>';
+                $html .= '<script>(function(){var openBtn=document.querySelector("[data-gigtune-open-dispute=\\"1\\"]");var closeBtn=document.querySelector("[data-gigtune-close-dispute=\\"1\\"]");var form=document.querySelector("[data-gigtune-dispute-form=\\"1\\"]");if(!openBtn||!form){return;}openBtn.addEventListener("click",function(){form.classList.remove("hidden");openBtn.classList.add("hidden");var s=form.querySelector("input[name=\'gigtune_dispute_subject\']");if(s){try{s.focus();}catch(e){}}});if(closeBtn){closeBtn.addEventListener("click",function(){form.classList.add("hidden");openBtn.classList.remove("hidden");});}})();</script>';
+            }
+
+            $html .= '<div class="rounded-xl border border-white/10 bg-white/5 p-4">';
+            $html .= '<div class="text-sm font-semibold text-white">Conversation</div>';
+            $html .= '<form method="post" class="mt-3 space-y-2">';
+            $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="send_message">';
+            $html .= '<input type="text" name="gigtune_booking_thread_subject" placeholder="Subject (optional)" class="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white">';
+            $html .= '<textarea name="gigtune_booking_thread_message" rows="3" required placeholder="Write your message..." class="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white"></textarea>';
+            $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500">Send message</button>';
+            $html .= '</form></div>';
 
             $rows = $this->db()->table($this->posts() . ' as p')
                 ->where('p.post_type', 'gigtune_message')
@@ -2761,9 +2895,24 @@ class GigTuneShortcodeService
                 return $html . '</div>';
             }
 
+            $messageIds = [];
+            foreach ($rows as $row) {
+                $messageIds[] = (int) ($row->ID ?? 0);
+            }
+            $messageMeta = $this->postMetaMap($messageIds, ['gigtune_message_sender_user_id']);
             $html .= '<div class="space-y-3">';
             foreach ($rows as $row) {
-                $html .= '<article class="rounded-xl border border-white/10 bg-white/5 p-4"><div class="text-xs text-slate-400">' . e((string) $row->post_date) . '</div><div class="mt-1 text-sm font-semibold text-white">' . e((string) $row->post_title) . '</div><p class="mt-1 text-sm text-slate-300">' . e((string) $row->post_content) . '</p></article>';
+                $messageId = (int) ($row->ID ?? 0);
+                $senderId = (int) ($messageMeta[$messageId]['gigtune_message_sender_user_id'] ?? 0);
+                $senderLabel = 'Unknown';
+                if ($senderId === $clientUserId && $clientUserId > 0) {
+                    $senderLabel = 'Client';
+                } elseif ($senderId === $artistOwnerId && $artistOwnerId > 0) {
+                    $senderLabel = 'Artist';
+                } elseif ($senderId > 0 && in_array($senderId, $this->adminUserIds(), true)) {
+                    $senderLabel = 'Admin';
+                }
+                $html .= '<article class="rounded-xl border border-white/10 bg-white/5 p-4"><div class="text-xs text-slate-400">' . e((string) $row->post_date) . ' <span class="text-slate-500">|</span> ' . e($senderLabel) . '</div><div class="mt-1 text-sm font-semibold text-white">' . e((string) $row->post_title) . '</div><p class="mt-1 text-sm text-slate-300">' . e((string) $row->post_content) . '</p></article>';
             }
             $html .= '</div>';
             return $html . '</div>';
@@ -3291,8 +3440,81 @@ class GigTuneShortcodeService
         $html .= '<form method="post" class="mt-4 space-y-4"><input type="hidden" name="gigtune_reset_password_submit" value="1"><div><label class="mb-2 block text-sm font-semibold text-slate-200" for="gigtune_reset_password">New password</label><input id="gigtune_reset_password" type="password" name="gigtune_reset_password" required class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div><div><label class="mb-2 block text-sm font-semibold text-slate-200" for="gigtune_reset_password_confirm">Confirm password</label><input id="gigtune_reset_password_confirm" type="password" name="gigtune_reset_password_confirm" required class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div><button type="submit" class="inline-flex w-full items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500">Reset password</button></form></div>';
         return $html;
     }
-    private function yocoSuccess(array $a): string { return '<div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">Payment completed successfully.</div>'; }
-    private function yocoCancel(array $a): string { return '<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">Payment canceled.</div>'; }
+    private function yocoSuccess(array $a): string
+    {
+        $bookingId = (int) (request()->query('booking_id', $a['booking_id'] ?? 0));
+        if ($bookingId <= 0) {
+            return '<div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-3 text-sm text-emerald-100">Payment completed successfully.</div>';
+        }
+
+        $bookingExists = $this->db()->table($this->posts())
+            ->where('ID', $bookingId)
+            ->where('post_type', 'gigtune_booking')
+            ->exists();
+        if (!$bookingExists) {
+            return '<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">Booking not found for payment callback.</div>';
+        }
+
+        $meta = $this->postMetaMap([$bookingId], [
+            'gigtune_booking_status',
+            'gigtune_booking_client_user_id',
+            'gigtune_booking_artist_profile_id',
+            'gigtune_payment_status',
+        ])[$bookingId] ?? [];
+        $nowTs = (string) now()->timestamp;
+        $bookingStatus = strtoupper(trim((string) ($meta['gigtune_booking_status'] ?? '')));
+        $paymentStatus = strtoupper(trim((string) ($meta['gigtune_payment_status'] ?? '')));
+        if (!in_array($paymentStatus, ['CONFIRMED_HELD_PENDING_COMPLETION', 'PAID_ESCROWED', 'ESCROW_FUNDED'], true)) {
+            $this->upsertPostMeta($bookingId, 'gigtune_payment_method', 'yoco');
+            $this->upsertPostMeta($bookingId, 'gigtune_payment_status', 'AWAITING_PAYMENT_CONFIRMATION');
+            $this->upsertPostMeta($bookingId, 'gigtune_payment_reported_at', $nowTs);
+            $this->upsertPostMeta($bookingId, 'gigtune_payment_last_note', 'Card payment completed. Awaiting admin confirmation.');
+            if ($bookingStatus === 'ACCEPTED_PENDING_PAYMENT') {
+                $this->upsertPostMeta($bookingId, 'gigtune_booking_status', 'AWAITING_PAYMENT_CONFIRMATION');
+            }
+        }
+
+        $clientUserId = (int) ($meta['gigtune_booking_client_user_id'] ?? 0);
+        $artistProfileId = (int) ($meta['gigtune_booking_artist_profile_id'] ?? 0);
+        $artistOwnerId = 0;
+        if ($artistProfileId > 0) {
+            $artistProfileMeta = $this->postMetaMap([$artistProfileId], ['gigtune_artist_user_id', 'gigtune_user_id'])[$artistProfileId] ?? [];
+            $artistOwnerId = (int) ($artistProfileMeta['gigtune_user_id'] ?? $artistProfileMeta['gigtune_artist_user_id'] ?? 0);
+            if ($artistOwnerId <= 0) {
+                $artistOwnerId = (int) $this->db()->table($this->posts())->where('ID', $artistProfileId)->value('post_author');
+            }
+        }
+        if ($clientUserId > 0) {
+            $this->createNotification($clientUserId, 'payment', 'Card payment submitted for booking #' . $bookingId . '. Awaiting confirmation.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+        }
+        if ($artistOwnerId > 0) {
+            $this->createNotification($artistOwnerId, 'payment', 'Client payment submitted for booking #' . $bookingId . '. Awaiting confirmation.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+        }
+        foreach ($this->adminUserIds() as $adminUserId) {
+            $this->createNotification($adminUserId, 'payment', 'Card payment submitted for booking #' . $bookingId . '. Review payment queue.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+        }
+
+        return $this->redirectInline('/messages/?booking_id=' . $bookingId . '&payment_result=success');
+    }
+
+    private function yocoCancel(array $a): string
+    {
+        $bookingId = (int) (request()->query('booking_id', $a['booking_id'] ?? 0));
+        if ($bookingId <= 0) {
+            return '<div class="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-100">Payment canceled.</div>';
+        }
+
+        $bookingExists = $this->db()->table($this->posts())
+            ->where('ID', $bookingId)
+            ->where('post_type', 'gigtune_booking')
+            ->exists();
+        if ($bookingExists) {
+            $this->upsertPostMeta($bookingId, 'gigtune_payment_status', 'FAILED');
+            $this->upsertPostMeta($bookingId, 'gigtune_payment_last_note', 'Payment cancelled by user.');
+        }
+
+        return $this->redirectInline('/messages/?booking_id=' . $bookingId . '&payment_result=cancelled');
+    }
     private function wooCart(array $a): string { return '<div class="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">Cart handled through booking flow.</div>'; }
     private function wooCheckout(array $a): string { return '<div class="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">Checkout handled via Yoco/Paystack.</div>'; }
 
@@ -3852,10 +4074,12 @@ class GigTuneShortcodeService
         $isArtist = $uid > 0 && in_array('gigtune_artist', $roles, true);
         $artistProfileId = $isArtist ? $this->latestUserMetaInt($uid, 'gigtune_artist_profile_id') : 0;
 
-        $clientRequirements = $isClient ? $this->missingRequirements($uid, 'client_can_request') : [];
+        $clientRequirements = $isClient && !$isAdmin ? $this->missingRequirements($uid, 'client_can_request') : [];
         $artistRequirements = $isArtist ? $this->missingRequirements($uid, 'artist_can_receive_requests') : [];
-        $canClientPost = $isClient && $clientRequirements === [];
+        $canClientPost = $isClient && ($isAdmin || $clientRequirements === []);
         $canArtistApply = $isArtist && $artistRequirements === [];
+        $applicationsViewPsaId = max(0, (int) ($request?->query('psa_id', 0) ?? 0));
+        $applicationsViewEnabled = $isClient && strtolower(trim((string) ($request?->query('view', '') ?? ''))) === 'applications' && $applicationsViewPsaId > 0;
 
         $statusMessage = '';
         $errorMessage = '';
@@ -3884,17 +4108,14 @@ class GigTuneShortcodeService
                     if ($locationCountry === '') {
                         $locationCountry = 'South Africa';
                     }
-                    $locationText = trim((string) $request->input('gigtune_psa_location_text', ''));
-                    if ($locationText === '') {
-                        $locationText = implode(', ', array_values(array_filter([
-                            $locationStreet,
-                            $locationSuburb,
-                            $locationCity,
-                            $locationProvince,
-                            $locationPostalCode,
-                            $locationCountry,
-                        ], static fn ($value): bool => trim((string) $value) !== '')));
-                    }
+                    $locationText = implode(', ', array_values(array_filter([
+                        $locationStreet,
+                        $locationSuburb,
+                        $locationCity,
+                        $locationProvince,
+                        $locationPostalCode,
+                        $locationCountry,
+                    ], static fn ($value): bool => trim((string) $value) !== '')));
 
                     if ($title === '' || $startDate === '') {
                         $errorMessage = 'Title and start date are required.';
@@ -3988,6 +4209,7 @@ class GigTuneShortcodeService
                             $statusMessage = 'You already applied to this post.';
                         } else {
                             $applications[] = [
+                                'application_id' => 'APP-' . $psaId . '-' . strtoupper(substr(hash('sha256', $artistProfileId . '|' . now()->timestamp . '|' . random_int(1000, 9999)), 0, 8)),
                                 'artist_id' => $artistProfileId,
                                 'applied_at' => now()->timestamp,
                                 'status' => 'APPLIED',
@@ -4027,6 +4249,28 @@ class GigTuneShortcodeService
                     } else {
                         $this->upsertPostMeta($psaId, 'gigtune_psa_status', 'closed');
                         $statusMessage = 'Post updated successfully.';
+                    }
+                }
+            } elseif ((string) $request->input('gigtune_psa_delete_submit', '') === '1') {
+                $nonce = trim((string) $request->input('gigtune_psa_delete_nonce', ''));
+                $psaId = (int) $request->input('gigtune_psa_id', 0);
+                if (!$this->verifyWpNonce($nonce, 'gigtune_psa_delete_action') || $psaId <= 0 || !$isClient) {
+                    $errorMessage = 'Invalid post action.';
+                } else {
+                    $ownerId = (int) $this->getLatestPostMeta($psaId, 'gigtune_psa_client_user_id');
+                    if (!$isAdmin && $ownerId !== $uid) {
+                        $errorMessage = 'Not allowed.';
+                    } else {
+                        $this->db()->table($this->posts())
+                            ->where('ID', $psaId)
+                            ->where('post_type', 'gigtune_psa')
+                            ->update([
+                                'post_status' => 'trash',
+                                'post_modified' => now()->format('Y-m-d H:i:s'),
+                                'post_modified_gmt' => now('UTC')->format('Y-m-d H:i:s'),
+                            ]);
+                        $this->upsertPostMeta($psaId, 'gigtune_psa_deleted_at', (string) now()->timestamp);
+                        $statusMessage = 'Post deleted.';
                     }
                 }
             } elseif ((string) $request->input('gigtune_psa_admin_hide_submit', '') === '1') {
@@ -4096,7 +4340,7 @@ class GigTuneShortcodeService
             $html .= '<div class="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4"><p class="text-amber-200 font-semibold">' . e($msg) . '</p></div>';
         }
 
-        if ($isClient) {
+        if ($isClient && !$applicationsViewEnabled) {
             $taxOptions = $this->getFilterOptions();
             $provinces = $this->saProvinces();
             $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
@@ -4113,7 +4357,6 @@ class GigTuneShortcodeService
                 $html .= '<div class="grid gap-4 md:grid-cols-3">';
                 $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Start date</label><input type="date" name="gigtune_psa_start_date" required class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
                 $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">End date</label><input type="date" name="gigtune_psa_end_date" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
-                $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Duration (weeks)</label><input type="number" min="0" name="gigtune_psa_duration_weeks" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
                 $html .= '</div>';
                 $html .= '<div class="grid gap-4 md:grid-cols-2">';
                 $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Budget min (ZAR)</label><input type="number" min="0" name="gigtune_psa_budget_min" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
@@ -4132,9 +4375,6 @@ class GigTuneShortcodeService
                 $html .= '</select></div>';
                 $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Postcode</label><input type="text" name="gigtune_psa_location_postal_code" required pattern="\\d{4}" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
                 $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Country</label><input type="text" name="gigtune_psa_location_country" value="South Africa" required class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
-                $html .= '</div>';
-                $html .= '<div class="grid gap-4 md:grid-cols-1">';
-                $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Location text</label><input type="text" name="gigtune_psa_location_text" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
                 $html .= '</div>';
                 foreach ($taxOptions as $taxonomy => $terms) {
                     if (!is_array($terms) || $terms === []) {
@@ -4157,6 +4397,11 @@ class GigTuneShortcodeService
             $html .= '</div>';
         }
 
+        if ($applicationsViewEnabled) {
+            $html .= $this->renderClientPsaApplicationsPanel($uid, $applicationsViewPsaId, $isAdmin);
+            return $html . '</div>';
+        }
+
         $posts = $this->fetchPsaFeedPosts($isClient ? $uid : null, $isClient ? null : 'open');
         $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
         $html .= '<h2 class="text-lg font-semibold text-white">' . e($isClient ? 'Your client posts' : 'Open client posts') . '</h2>';
@@ -4176,10 +4421,6 @@ class GigTuneShortcodeService
                     $html .= '<div class="text-sm text-slate-300 mt-2">' . e((string) $post['content']) . '</div>';
                 }
                 $html .= '<div class="text-xs text-slate-400 mt-2">Status: <span class="text-slate-200">' . e($this->toSentenceCase($status)) . '</span></div>';
-                $locationText = trim((string) ($post['location_text'] ?? ''));
-                if ($locationText !== '') {
-                    $html .= '<div class="text-xs text-slate-400">Location: <span class="text-slate-200">' . e($locationText) . '</span></div>';
-                }
                 $budgetMin = (int) ($post['budget_min'] ?? 0);
                 $budgetMax = (int) ($post['budget_max'] ?? 0);
                 if ($budgetMin > 0 || $budgetMax > 0) {
@@ -4187,31 +4428,16 @@ class GigTuneShortcodeService
                 }
 
                 if ($isClient) {
-                    $html .= '<div class="mt-3 rounded-lg border border-white/10 bg-white/5 p-3"><div class="text-xs font-semibold text-slate-200">Applicants</div>';
-                    if ($applications === []) {
-                        $html .= '<p class="mt-1 text-xs text-slate-400">No applications yet.</p>';
-                    } else {
-                        $html .= '<div class="mt-2 space-y-2">';
-                        foreach ($applications as $application) {
-                            $artistId = (int) ($application['artist_id'] ?? 0);
-                            if ($artistId <= 0) {
-                                continue;
-                            }
-                            $artistPost = $this->db()->table($this->posts())->where('ID', $artistId)->where('post_type', 'artist_profile')->first(['post_title']);
-                            $artistName = $artistPost !== null ? trim((string) ($artistPost->post_title ?? '')) : '';
-                            if ($artistName === '') {
-                                $artistName = 'Artist #' . $artistId;
-                            }
-                            $bookUrl = '/book-an-artist/?artist_id=' . $artistId . '&post_ref=' . $psaId . '&psa_id=' . $psaId;
-                            $html .= '<div class="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2"><div class="text-xs text-slate-200">' . e($artistName) . '</div><a href="' . e($bookUrl) . '" class="inline-flex items-center justify-center rounded-lg px-3 py-1 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500">Book this Artist</a></div>';
-                        }
-                        $html .= '</div>';
-                    }
-                    $html .= '</div>';
+                    $appCount = count($applications);
+                    $applicationUrl = '/posts-page/?view=applications&psa_id=' . $psaId;
+                    $html .= '<div class="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-slate-300">Applications: <span class="text-slate-100 font-semibold">' . e((string) $appCount) . '</span> <a href="' . e($applicationUrl) . '" class="ml-2 text-blue-300 hover:text-blue-200 underline">Open applications</a></div>';
                 }
 
                 if ($isClient && $status === 'open') {
                     $html .= '<form method="post" class="mt-3"><input type="hidden" name="gigtune_psa_id" value="' . $psaId . '"><input type="hidden" name="gigtune_psa_close_nonce" value="' . e($this->createWpNonce('gigtune_psa_close_action')) . '"><button type="submit" name="gigtune_psa_close_submit" value="1" class="text-xs text-rose-300 hover:text-rose-200">Close post</button></form>';
+                }
+                if ($isClient) {
+                    $html .= '<form method="post" class="mt-2"><input type="hidden" name="gigtune_psa_id" value="' . $psaId . '"><input type="hidden" name="gigtune_psa_delete_nonce" value="' . e($this->createWpNonce('gigtune_psa_delete_action')) . '"><button type="submit" name="gigtune_psa_delete_submit" value="1" class="text-xs text-rose-300 hover:text-rose-200">Delete post</button></form>';
                 }
                 if ($canArtistApply && $status === 'open') {
                     $html .= '<form method="post" class="mt-3"><input type="hidden" name="gigtune_psa_id" value="' . $psaId . '"><input type="hidden" name="gigtune_psa_apply_nonce" value="' . e($this->createWpNonce('gigtune_psa_apply_action')) . '">';
@@ -4232,6 +4458,73 @@ class GigTuneShortcodeService
             }
         }
         $html .= '</div></div>';
+        return $html . '</div>';
+    }
+
+    private function renderClientPsaApplicationsPanel(int $clientUserId, int $psaId, bool $isAdmin): string
+    {
+        $psaId = abs($psaId);
+        if ($psaId <= 0) {
+            return '<div class="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4"><p class="text-rose-200 font-semibold">Invalid post ID.</p></div>';
+        }
+
+        $post = $this->db()->table($this->posts())
+            ->where('ID', $psaId)
+            ->where('post_type', 'gigtune_psa')
+            ->where('post_status', 'publish')
+            ->first(['ID', 'post_title', 'post_content']);
+        if ($post === null) {
+            return '<div class="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4"><p class="text-rose-200 font-semibold">Client post not found.</p></div>';
+        }
+
+        $ownerId = (int) $this->getLatestPostMeta($psaId, 'gigtune_psa_client_user_id');
+        if (!$isAdmin && $ownerId > 0 && $ownerId !== $clientUserId) {
+            return '<div class="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4"><p class="text-rose-200 font-semibold">Access denied for post applications.</p></div>';
+        }
+
+        $applications = $this->psaApplications($psaId);
+        $html = '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
+        $html .= '<div class="flex flex-wrap items-center justify-between gap-3">';
+        $html .= '<h2 class="text-lg font-semibold text-white">Post applications</h2>';
+        $html .= '<a href="/posts-page/" class="text-xs text-slate-300 hover:text-white underline">Back to client posts</a>';
+        $html .= '</div>';
+        $html .= '<p class="mt-2 text-sm text-slate-300">Post #' . e((string) $psaId) . ': <span class="text-slate-100">' . e((string) ($post->post_title ?? 'Client post')) . '</span></p>';
+
+        if ($applications === []) {
+            $html .= '<p class="mt-4 text-sm text-slate-300">No applications yet.</p>';
+            return $html . '</div>';
+        }
+
+        $html .= '<div class="mt-4 space-y-3">';
+        foreach ($applications as $application) {
+            $artistId = (int) ($application['artist_id'] ?? 0);
+            if ($artistId <= 0) {
+                continue;
+            }
+            $artistPost = $this->db()->table($this->posts())->where('ID', $artistId)->where('post_type', 'artist_profile')->first(['post_title']);
+            $artistName = $artistPost !== null ? trim((string) ($artistPost->post_title ?? '')) : '';
+            if ($artistName === '') {
+                $artistName = 'Artist #' . $artistId;
+            }
+            $applicationId = trim((string) ($application['application_id'] ?? ''));
+            if ($applicationId === '') {
+                $applicationId = 'APP-' . $psaId . '-' . strtoupper(substr(hash('sha256', $artistId . '|' . (string) ($application['applied_at'] ?? 0)), 0, 8));
+            }
+            $appliedAt = (int) ($application['applied_at'] ?? 0);
+            $bookUrl = '/book-an-artist/?artist_id=' . $artistId . '&post_ref=' . $psaId . '&psa_id=' . $psaId . '&application_id=' . rawurlencode($applicationId);
+            $profileUrl = '/artist-profile/?artist_id=' . $artistId;
+            $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-4">';
+            $html .= '<div class="flex flex-wrap items-start justify-between gap-3">';
+            $html .= '<div><div class="text-xs text-slate-400">Application ID: <span class="text-slate-200 font-mono">' . e($applicationId) . '</span></div><div class="text-sm font-semibold text-white mt-1">' . e($artistName) . '</div>';
+            if ($appliedAt > 0) {
+                $html .= '<div class="text-xs text-slate-400 mt-1">Applied: ' . e(date('M j, Y H:i', $appliedAt)) . '</div>';
+            }
+            $html .= '</div>';
+            $html .= '<div class="flex flex-wrap gap-2"><a href="' . e($profileUrl) . '" class="inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-xs font-semibold text-white bg-white/10 hover:bg-white/15">View profile</a><a href="' . e($bookUrl) . '" class="inline-flex items-center justify-center rounded-lg px-3 py-1.5 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500">Book this artist</a></div>';
+            $html .= '</div></div>';
+        }
+        $html .= '</div>';
+
         return $html . '</div>';
     }
 
@@ -4307,7 +4600,7 @@ class GigTuneShortcodeService
         return $items;
     }
 
-    /** @return array<int,array{artist_id:int,applied_at:int,status:string}> */
+    /** @return array<int,array{application_id:string,artist_id:int,applied_at:int,status:string}> */
     private function psaApplications(int $psaId): array
     {
         $raw = $this->maybe($this->getLatestPostMeta($psaId, 'gigtune_post_applications'));
@@ -4327,7 +4620,12 @@ class GigTuneShortcodeService
             if ($status === '') {
                 $status = 'APPLIED';
             }
+            $applicationId = trim((string) ($row['application_id'] ?? ''));
+            if ($applicationId === '') {
+                $applicationId = 'APP-' . $psaId . '-' . strtoupper(substr(hash('sha256', $artistId . '|' . (string) ($row['applied_at'] ?? 0)), 0, 8));
+            }
             $out[$artistId] = [
+                'application_id' => $applicationId,
                 'artist_id' => $artistId,
                 'applied_at' => max(0, (int) ($row['applied_at'] ?? 0)),
                 'status' => $status,
@@ -4336,7 +4634,7 @@ class GigTuneShortcodeService
         return array_values($out);
     }
 
-    /** @param array<int,array{artist_id:int,applied_at:int,status:string}> $applications */
+    /** @param array<int,array{application_id?:string,artist_id:int,applied_at:int,status:string}> $applications */
     private function savePsaApplications(int $psaId, array $applications): void
     {
         $clean = [];
@@ -4348,7 +4646,12 @@ class GigTuneShortcodeService
             if ($artistId <= 0 || isset($clean[$artistId])) {
                 continue;
             }
+            $applicationId = trim((string) ($row['application_id'] ?? ''));
+            if ($applicationId === '') {
+                $applicationId = 'APP-' . $psaId . '-' . strtoupper(substr(hash('sha256', $artistId . '|' . (string) ($row['applied_at'] ?? now()->timestamp)), 0, 8));
+            }
             $clean[$artistId] = [
+                'application_id' => $applicationId,
                 'artist_id' => $artistId,
                 'applied_at' => max(0, (int) ($row['applied_at'] ?? now()->timestamp)),
                 'status' => strtoupper(trim((string) ($row['status'] ?? 'APPLIED'))) ?: 'APPLIED',
@@ -5921,7 +6224,7 @@ HTML;
             }
         }
 
-        $serviceFeeRate = 0.10;
+        $serviceFeeRate = 0.15;
         $serviceFee = round(($budget + $travelFee + $accommodationFee) * $serviceFeeRate, 2);
         $total = round($budget + $travelFee + $accommodationFee + $serviceFee, 2);
         if ($total <= 0) {
@@ -6033,6 +6336,24 @@ HTML;
         return rtrim((string) url('/'), '/');
     }
 
+    private function redirectInline(string $path): string
+    {
+        $target = trim($path);
+        if ($target === '') {
+            $target = '/';
+        }
+        if (!str_starts_with($target, '/')) {
+            $target = '/' . ltrim($target, '/');
+        }
+        $encoded = json_encode($target, JSON_UNESCAPED_SLASHES);
+        if (!is_string($encoded)) {
+            $encoded = '"/"';
+        }
+
+        return '<script>(function(){var u=' . $encoded . ';if(u){window.location.replace(u);}})();</script>'
+            . '<div class="rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">Redirecting... If not redirected, <a class="underline" href="' . e($target) . '">continue</a>.</div>';
+    }
+
     private function createWpNonce(string $action): string
     {
         $seed = csrf_token() . '|' . $action . '|' . (string) config('app.key', '');
@@ -6053,7 +6374,7 @@ HTML;
 
         $ownerUserId = (int) $this->getLatestPostMeta($psaId, 'gigtune_psa_client_user_id');
         if ($viewerUserId > 0 && $ownerUserId > 0 && $viewerUserId === $ownerUserId) {
-            return '/posts-page/?psa_id=' . $psaId;
+            return '/posts-page/?view=applications&psa_id=' . $psaId;
         }
 
         return '/open-posts/?psa_id=' . $psaId;

@@ -127,6 +127,7 @@ class GigTuneCoreParityController extends Controller
             'event_date' => ['required', 'string', 'max:50'],
             'end_time' => ['nullable', 'string', 'max:20'],
             'budget' => ['nullable', 'string', 'max:50'],
+            'psa_id' => ['nullable', 'integer', 'min:1'],
             'notes' => ['nullable', 'string', 'max:5000'],
         ]);
 
@@ -141,6 +142,21 @@ class GigTuneCoreParityController extends Controller
             return response()->json([
                 'code' => 'gigtune_artist_unavailable',
                 'message' => 'Artist is unavailable for the selected date.',
+            ], 422);
+        }
+        $artistPricing = is_array($artist['pricing'] ?? null) ? $artist['pricing'] : [];
+        $artistMinimum = max(0, (int) round((float) ($artistPricing['min'] ?? 0)));
+        $budgetRaw = trim((string) ($payload['budget'] ?? ''));
+        $submittedBudget = (float) ($budgetRaw !== '' ? $budgetRaw : '0');
+        if ($artistMinimum > 0 && $submittedBudget <= 0) {
+            $submittedBudget = (float) $artistMinimum;
+            $payload['budget'] = (string) $artistMinimum;
+        }
+        if ($artistMinimum > 0 && $submittedBudget < $artistMinimum) {
+            return response()->json([
+                'code' => 'gigtune_budget_too_low',
+                'message' => 'Booking budget must be at least the artist minimum price.',
+                'minimum' => $artistMinimum,
             ], 422);
         }
 
@@ -166,6 +182,19 @@ class GigTuneCoreParityController extends Controller
         $this->upsertPostMeta($id, 'gigtune_booking_end_time', (string) ($payload['end_time'] ?? ''));
         $this->upsertPostMeta($id, 'gigtune_booking_budget', (string) ($payload['budget'] ?? ''));
         $this->upsertPostMeta($id, 'gigtune_booking_notes', (string) ($payload['notes'] ?? ''));
+        $sourcePsaId = (int) ($payload['psa_id'] ?? 0);
+        if ($sourcePsaId > 0) {
+            $this->upsertPostMeta($id, 'gigtune_booking_source_psa_id', (string) $sourcePsaId);
+            $psaExists = $this->db()->table($this->posts())
+                ->where('ID', $sourcePsaId)
+                ->where('post_type', 'gigtune_psa')
+                ->exists();
+            if ($psaExists) {
+                $this->upsertPostMeta($sourcePsaId, 'gigtune_psa_status', 'closed');
+                $this->upsertPostMeta($sourcePsaId, 'gigtune_psa_closed_at', (string) now()->timestamp);
+                $this->upsertPostMeta($sourcePsaId, 'gigtune_psa_closed_by_booking_id', (string) $id);
+            }
+        }
 
         return response()->json(['id' => $id, 'status' => 'REQUESTED'], 201);
     }

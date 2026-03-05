@@ -76,6 +76,7 @@ class AdminPortalController extends Controller
             : (string) $request->query('tab', 'overview');
         $activeTab = $this->resolveDashboardTab($requestedTab);
         $currentUser = $request->attributes->get('gigtune_user');
+        $currentUserId = (int) (is_array($currentUser) ? ($currentUser['id'] ?? 0) : 0);
 
         return view('admin.dashboard', [
             'currentUser' => is_array($currentUser) ? $currentUser : null,
@@ -83,6 +84,7 @@ class AdminPortalController extends Controller
             'activeTab' => $activeTab,
             'tabData' => $this->loadDashboardTabData($activeTab, $request),
             'siteMaintenanceEnabled' => $this->siteMaintenance->isEnabled(),
+            'adminNotifications' => $this->loadAdminNotifications($currentUserId, 12),
         ]);
     }
 
@@ -862,6 +864,17 @@ class AdminPortalController extends Controller
             $this->upsertPostMeta($bookingId, 'gigtune_booking_status', 'COMPLETED_CONFIRMED');
         }
 
+        $participantIds = $this->bookingParticipantUserIds($bookingId);
+        $message = $decision === 'resolve'
+            ? ('Dispute for booking #' . $bookingId . ' was resolved by admin.')
+            : ('Dispute for booking #' . $bookingId . ' was rejected by admin.');
+        if ($note !== '') {
+            $message .= ' Note: ' . $note;
+        }
+        foreach ($participantIds as $participantId) {
+            $this->createSystemNotification($participantId, $message, 'dispute', 'booking', $bookingId);
+        }
+
         return true;
     }
 
@@ -904,6 +917,13 @@ class AdminPortalController extends Controller
             if ($note !== '') {
                 $this->upsertPostMeta($bookingId, 'gigtune_refund_note', $note);
             }
+            foreach ($this->bookingParticipantUserIds($bookingId) as $participantId) {
+                $msg = 'Refund review for booking #' . $bookingId . ' is pending admin processing.';
+                if ($note !== '') {
+                    $msg .= ' Note: ' . $note;
+                }
+                $this->createSystemNotification($participantId, $msg, 'refund', 'booking', $bookingId);
+            }
             return true;
         }
 
@@ -912,6 +932,9 @@ class AdminPortalController extends Controller
             $this->upsertPostMeta($bookingId, 'gigtune_refund_status', 'REJECTED');
             $this->upsertPostMeta($bookingId, 'gigtune_refund_failure_reason', $failure);
             $this->clearRefundLock($bookingId);
+            foreach ($this->bookingParticipantUserIds($bookingId) as $participantId) {
+                $this->createSystemNotification($participantId, 'Refund request for booking #' . $bookingId . ' was rejected. Note: ' . $failure, 'refund', 'booking', $bookingId);
+            }
             return true;
         }
 
@@ -939,8 +962,125 @@ class AdminPortalController extends Controller
 
         $this->upsertPostMeta($bookingId, 'gigtune_payment_status', $paymentStatus);
         $this->upsertPostMeta($bookingId, 'gigtune_booking_status', 'CANCELLED_BY_CLIENT');
+        foreach ($this->bookingParticipantUserIds($bookingId) as $participantId) {
+            $msg = 'Refund for booking #' . $bookingId . ' was completed (' . $paymentStatus . ').';
+            if ($note !== '') {
+                $msg .= ' Note: ' . $note;
+            }
+            $this->createSystemNotification($participantId, $msg, 'refund', 'booking', $bookingId);
+        }
 
         return true;
+    }
+
+    /** @return array<int> */
+    private function bookingParticipantUserIds(int $bookingId): array
+    {
+        $bookingId = abs($bookingId);
+        if ($bookingId <= 0) {
+            return [];
+        }
+
+        $ids = [];
+        $clientUserId = (int) $this->getLatestPostMetaValue($bookingId, 'gigtune_booking_client_user_id');
+        if ($clientUserId > 0) {
+            $ids[$clientUserId] = $clientUserId;
+        }
+
+        $artistProfileId = (int) $this->getLatestPostMetaValue($bookingId, 'gigtune_booking_artist_profile_id');
+        if ($artistProfileId > 0) {
+            $artistUserId = (int) $this->getLatestPostMetaValue($artistProfileId, 'gigtune_user_id');
+            if ($artistUserId <= 0) {
+                $artistUserId = (int) $this->getLatestPostMetaValue($artistProfileId, 'gigtune_artist_user_id');
+            }
+            if ($artistUserId <= 0) {
+                $artistUserId = (int) $this->wordpressDb()
+                    ->table($this->tablePrefix() . 'posts')
+                    ->where('ID', $artistProfileId)
+                    ->value('post_author');
+            }
+            if ($artistUserId > 0) {
+                $ids[$artistUserId] = $artistUserId;
+            }
+        }
+
+        return array_values($ids);
+    }
+
+    private function createSystemNotification(
+        int $targetUserId,
+        string $message,
+        string $type = 'system',
+        string $objectType = '',
+        int $objectId = 0
+    ): void {
+        $targetUserId = abs($targetUserId);
+        if ($targetUserId <= 0) {
+            return;
+        }
+
+        $message = trim($message);
+        if ($message === '') {
+            return;
+        }
+
+        $db = $this->wordpressDb();
+        $posts = $this->tablePrefix() . 'posts';
+        $nowLocal = now();
+        $nowUtc = now('UTC');
+        $notificationId = (int) $db->table($posts)->insertGetId([
+            'post_author' => 0,
+            'post_date' => $nowLocal->format('Y-m-d H:i:s'),
+            'post_date_gmt' => $nowUtc->format('Y-m-d H:i:s'),
+            'post_content' => '',
+            'post_title' => mb_substr($message, 0, 255),
+            'post_excerpt' => '',
+            'post_status' => 'publish',
+            'comment_status' => 'closed',
+            'ping_status' => 'closed',
+            'post_password' => '',
+            'post_name' => '',
+            'to_ping' => '',
+            'pinged' => '',
+            'post_modified' => $nowLocal->format('Y-m-d H:i:s'),
+            'post_modified_gmt' => $nowUtc->format('Y-m-d H:i:s'),
+            'post_content_filtered' => '',
+            'post_parent' => 0,
+            'guid' => '',
+            'menu_order' => 0,
+            'post_type' => 'gigtune_notification',
+            'post_mime_type' => '',
+            'comment_count' => 0,
+        ]);
+        if ($notificationId <= 0) {
+            return;
+        }
+
+        $createdAt = (string) now()->timestamp;
+        $meta = [
+            'gigtune_notification_recipient_user_id' => (string) $targetUserId,
+            'gigtune_notification_user_id' => (string) $targetUserId,
+            'recipient_user_id' => (string) $targetUserId,
+            'gigtune_notification_type' => $type !== '' ? $type : 'system',
+            'notification_type' => $type !== '' ? $type : 'system',
+            'gigtune_notification_object_type' => $objectType,
+            'object_type' => $objectType,
+            'gigtune_notification_object_id' => (string) max(0, $objectId),
+            'object_id' => (string) max(0, $objectId),
+            'gigtune_notification_title' => $message,
+            'gigtune_notification_message' => $message,
+            'message' => $message,
+            'gigtune_notification_created_at' => $createdAt,
+            'created_at' => $createdAt,
+            'gigtune_notification_is_read' => '0',
+            'gigtune_notification_read_at' => '0',
+            'gigtune_notification_is_archived' => '0',
+            'gigtune_notification_is_deleted' => '0',
+            'is_read' => '0',
+        ];
+        foreach ($meta as $key => $value) {
+            $this->upsertPostMeta($notificationId, $key, (string) $value);
+        }
     }
 
     private function findPostIdByTypeAndMeta(string $postType, string $metaKey, string $metaValue): int
@@ -1496,6 +1636,85 @@ class AdminPortalController extends Controller
         $allowed = ['overview', 'users', 'compliance', 'payments', 'payouts', 'bookings', 'disputes', 'refunds', 'kyc', 'reports'];
         $normalized = trim(strtolower($tab));
         return in_array($normalized, $allowed, true) ? $normalized : 'overview';
+    }
+
+    private function loadAdminNotifications(int $adminUserId, int $limit = 12): array
+    {
+        $adminUserId = abs($adminUserId);
+        if ($adminUserId <= 0) {
+            return [];
+        }
+
+        $db = $this->wordpressDb();
+        $prefix = $this->tablePrefix();
+        $posts = $prefix . 'posts';
+        $postmeta = $prefix . 'postmeta';
+
+        $rows = $db->table($posts . ' as p')
+            ->select(['p.ID', 'p.post_title', 'p.post_date'])
+            ->where('p.post_type', 'gigtune_notification')
+            ->whereExists(function ($query) use ($postmeta, $adminUserId): void {
+                $query->selectRaw('1')
+                    ->from($postmeta . ' as pm')
+                    ->whereColumn('pm.post_id', 'p.ID')
+                    ->whereIn('pm.meta_key', ['gigtune_notification_recipient_user_id', 'gigtune_notification_user_id', 'recipient_user_id'])
+                    ->where('pm.meta_value', (string) $adminUserId);
+            })
+            ->orderByDesc('p.ID')
+            ->limit(max(1, min(30, $limit)))
+            ->get();
+
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($rows as $row) {
+            $ids[] = (int) $row->ID;
+        }
+        $meta = $this->postMetaMap($ids, [
+            'gigtune_notification_message',
+            'message',
+            'gigtune_notification_object_type',
+            'object_type',
+            'gigtune_notification_object_id',
+            'object_id',
+            'gigtune_notification_is_read',
+            'is_read',
+            'gigtune_notification_created_at',
+            'created_at',
+        ]);
+
+        $items = [];
+        foreach ($rows as $row) {
+            $id = (int) $row->ID;
+            $m = $meta[$id] ?? [];
+            $message = trim((string) ($m['gigtune_notification_message'] ?? $m['message'] ?? $row->post_title ?? ''));
+            $objectType = trim((string) ($m['gigtune_notification_object_type'] ?? $m['object_type'] ?? ''));
+            $objectId = (int) ($m['gigtune_notification_object_id'] ?? $m['object_id'] ?? 0);
+            $createdAt = (int) ($m['gigtune_notification_created_at'] ?? $m['created_at'] ?? 0);
+            if ($createdAt <= 0) {
+                $createdAt = strtotime((string) ($row->post_date ?? '')) ?: 0;
+            }
+            $isRead = in_array((string) ($m['gigtune_notification_is_read'] ?? $m['is_read'] ?? '0'), ['1', 'true', 'yes'], true);
+
+            $openUrl = '/notifications/?notification_id=' . $id;
+            if ($objectType === 'booking' && $objectId > 0) {
+                $openUrl = '/messages/?booking_id=' . $objectId . '&notification_id=' . $id;
+            } elseif ($objectType === 'psa' && $objectId > 0) {
+                $openUrl = '/posts-page/?psa_id=' . $objectId . '&notification_id=' . $id;
+            }
+
+            $items[] = [
+                'id' => $id,
+                'message' => $message,
+                'created_at' => $createdAt,
+                'is_read' => $isRead,
+                'open_url' => $openUrl,
+            ];
+        }
+
+        return $items;
     }
 
     private function loadDashboardTabData(string $tab, Request $request): array

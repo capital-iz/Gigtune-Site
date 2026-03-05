@@ -111,6 +111,35 @@
                     </div>
 
                     <div class="mt-6 grid gap-3 md:grid-cols-2">
+                        <div class="rounded-xl border border-white/10 bg-black/20 p-4 md:col-span-2">
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="text-sm font-semibold text-white">Admin notifications</div>
+                                <a href="/notifications/" class="text-xs text-blue-300 hover:text-blue-200">Open notifications</a>
+                            </div>
+                            @if (!empty($adminNotifications))
+                                <div class="mt-3 space-y-2">
+                                    @foreach ($adminNotifications as $notification)
+                                        <div class="rounded-lg border border-white/10 bg-slate-950/40 px-3 py-2">
+                                            <div class="flex flex-wrap items-start justify-between gap-3">
+                                                <div class="text-xs {{ !empty($notification['is_read']) ? 'text-slate-300' : 'text-white font-semibold' }}">
+                                                    {{ $notification['message'] ?? 'Notification' }}
+                                                    @if (!empty($notification['created_at']))
+                                                        <div class="mt-1 text-[11px] text-slate-400">
+                                                            {{ date('M j, Y H:i', (int) $notification['created_at']) }}
+                                                        </div>
+                                                    @endif
+                                                </div>
+                                                <a href="{{ $notification['open_url'] ?? '/notifications/' }}" class="inline-flex items-center justify-center rounded-md bg-white/10 px-2.5 py-1 text-[11px] font-semibold text-white hover:bg-white/15">
+                                                    Open
+                                                </a>
+                                            </div>
+                                        </div>
+                                    @endforeach
+                                </div>
+                            @else
+                                <p class="mt-2 text-xs text-slate-300">No notifications yet.</p>
+                            @endif
+                        </div>
                         <div class="rounded-xl border border-white/10 bg-black/20 p-4">
                             <div class="text-sm font-semibold text-white">Users</div>
                             <div class="mt-1 text-xs text-slate-300">Total users: {{ $metrics['users_total'] }}</div>

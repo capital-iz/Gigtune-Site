@@ -94,6 +94,106 @@ class GigTuneShortcodeService
         return null;
     }
 
+    public function isArtistAvailableForEvent(int $artistProfileId, string $eventDate): bool
+    {
+        $artistProfileId = abs($artistProfileId);
+        $eventDate = trim($eventDate);
+        if ($artistProfileId <= 0 || $eventDate === '') {
+            return false;
+        }
+
+        $daysRaw = (string) $this->getLatestPostMeta($artistProfileId, 'gigtune_artist_availability_days');
+        $days = $this->normalizeAvailabilityDays($this->days($daysRaw));
+        if ($days === []) {
+            return false;
+        }
+
+        $timezoneName = (string) config('app.timezone', 'UTC');
+        try {
+            $timezone = new \DateTimeZone($timezoneName !== '' ? $timezoneName : 'UTC');
+        } catch (\Throwable) {
+            $timezone = new \DateTimeZone('UTC');
+        }
+
+        $dt = null;
+        foreach (['Y-m-d\TH:i', 'Y-m-d H:i:s', 'Y-m-d H:i', 'Y-m-d'] as $format) {
+            $candidate = \DateTimeImmutable::createFromFormat($format, $eventDate, $timezone);
+            if ($candidate instanceof \DateTimeImmutable) {
+                $dt = $candidate;
+                break;
+            }
+        }
+        if (!($dt instanceof \DateTimeImmutable)) {
+            $fallbackTs = strtotime($eventDate);
+            if ($fallbackTs !== false) {
+                $dt = (new \DateTimeImmutable('@' . $fallbackTs))->setTimezone($timezone);
+            }
+        }
+        if (!($dt instanceof \DateTimeImmutable)) {
+            return false;
+        }
+
+        $eventTimestamp = $dt->getTimestamp();
+        $slotsRaw = (string) $this->getLatestPostMeta($artistProfileId, 'gigtune_artist_availability_slots');
+        $slotsValue = $this->maybe($slotsRaw);
+        if (is_array($slotsValue) && $slotsValue !== []) {
+            $hasValidSlotWindow = false;
+            foreach ($slotsValue as $slot) {
+                if (!is_array($slot)) {
+                    continue;
+                }
+                $startTs = abs((int) ($slot['start'] ?? 0));
+                $endTs = abs((int) ($slot['end'] ?? 0));
+                if ($startTs <= 0 || $endTs <= 0) {
+                    continue;
+                }
+                $hasValidSlotWindow = true;
+                if ($eventTimestamp >= $startTs && $eventTimestamp <= $endTs) {
+                    return true;
+                }
+            }
+            if ($hasValidSlotWindow) {
+                return false;
+            }
+        }
+
+        $weekdayMap = [
+            'Mon' => 'mon',
+            'Tue' => 'tue',
+            'Wed' => 'wed',
+            'Thu' => 'thu',
+            'Fri' => 'fri',
+            'Sat' => 'sat',
+            'Sun' => 'sun',
+        ];
+        $weekday = (string) ($weekdayMap[$dt->format('D')] ?? '');
+        if ($weekday === '' || !in_array($weekday, $days, true)) {
+            return false;
+        }
+
+        if (strpos($eventDate, 'T') === false && preg_match('/\d{2}:\d{2}/', $eventDate) !== 1) {
+            return true;
+        }
+
+        $startTime = trim((string) $this->getLatestPostMeta($artistProfileId, 'gigtune_artist_availability_start_time'));
+        $endTime = trim((string) $this->getLatestPostMeta($artistProfileId, 'gigtune_artist_availability_end_time'));
+        if (preg_match('/^\d{2}:\d{2}$/', $startTime) !== 1 || preg_match('/^\d{2}:\d{2}$/', $endTime) !== 1) {
+            return true;
+        }
+
+        $eventMinutes = ((int) $dt->format('H') * 60) + (int) $dt->format('i');
+        [$startH, $startM] = array_map('intval', explode(':', $startTime));
+        [$endH, $endM] = array_map('intval', explode(':', $endTime));
+        $startMinutes = ($startH * 60) + $startM;
+        $endMinutes = ($endH * 60) + $endM;
+
+        if ($endMinutes >= $startMinutes) {
+            return $eventMinutes >= $startMinutes && $eventMinutes <= $endMinutes;
+        }
+
+        return $eventMinutes >= $startMinutes || $eventMinutes <= $endMinutes;
+    }
+
     /** @return array<string,mixed> */
     public function getArtists(array $args = []): array
     {
@@ -1890,6 +1990,12 @@ class GigTuneShortcodeService
                                             $errorMessage = $this->firstMissingRequirementMessage($artistRequirements, 'The selected artist cannot receive booking requests right now.');
                                             $errorList = [$errorMessage];
                                         }
+                                    }
+                                    if ($error === '' && !$this->isArtistAvailableForEvent($artistIdInput, $values['event_date'])) {
+                                        $error = '1';
+                                        $errorMessage = 'Artist is unavailable for the selected date.';
+                                        $errorList = [$errorMessage];
+                                        $firstErrorField = 'gigtune-booking-event-date';
                                     }
                                 }
                             }
@@ -4298,6 +4404,31 @@ class GigTuneShortcodeService
             }
         }
         return array_values(array_unique($out));
+    }
+
+    /** @param array<int,string> $days */
+    private function normalizeAvailabilityDays(array $days): array
+    {
+        $map = [
+            'monday' => 'mon', 'mon' => 'mon',
+            'tuesday' => 'tue', 'tue' => 'tue', 'tues' => 'tue',
+            'wednesday' => 'wed', 'wed' => 'wed',
+            'thursday' => 'thu', 'thu' => 'thu', 'thurs' => 'thu',
+            'friday' => 'fri', 'fri' => 'fri',
+            'saturday' => 'sat', 'sat' => 'sat',
+            'sunday' => 'sun', 'sun' => 'sun',
+        ];
+
+        $normalized = [];
+        foreach ($days as $day) {
+            $key = strtolower(trim((string) $day));
+            $canonical = (string) ($map[$key] ?? '');
+            if ($canonical !== '') {
+                $normalized[] = $canonical;
+            }
+        }
+
+        return array_values(array_unique($normalized));
     }
 
     /** @return array<int,array{title:string,url:string,type:string,raw:string,label:string}> */

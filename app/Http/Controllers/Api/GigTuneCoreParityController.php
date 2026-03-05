@@ -124,11 +124,25 @@ class GigTuneCoreParityController extends Controller
 
         $payload = $request->validate([
             'artist_profile_id' => ['required', 'integer', 'min:1'],
-            'event_date' => ['nullable', 'string', 'max:50'],
+            'event_date' => ['required', 'string', 'max:50'],
             'end_time' => ['nullable', 'string', 'max:20'],
             'budget' => ['nullable', 'string', 'max:50'],
             'notes' => ['nullable', 'string', 'max:5000'],
         ]);
+
+        $artistProfileId = (int) $payload['artist_profile_id'];
+        $artist = $this->shortcodes->getArtistById($artistProfileId);
+        if (!is_array($artist)) {
+            return response()->json(['code' => 'gigtune_not_found', 'message' => 'Artist not found.'], 404);
+        }
+
+        $eventDate = trim((string) ($payload['event_date'] ?? ''));
+        if (!$this->shortcodes->isArtistAvailableForEvent($artistProfileId, $eventDate)) {
+            return response()->json([
+                'code' => 'gigtune_artist_unavailable',
+                'message' => 'Artist is unavailable for the selected date.',
+            ], 422);
+        }
 
         $id = (int) $this->db()->table($this->posts())->insertGetId([
             'post_author' => (int) ($user['id'] ?? 0),
@@ -146,9 +160,9 @@ class GigTuneCoreParityController extends Controller
         ]);
 
         $this->upsertPostMeta($id, 'gigtune_booking_client_user_id', (string) (int) ($user['id'] ?? 0));
-        $this->upsertPostMeta($id, 'gigtune_booking_artist_profile_id', (string) (int) $payload['artist_profile_id']);
+        $this->upsertPostMeta($id, 'gigtune_booking_artist_profile_id', (string) $artistProfileId);
         $this->upsertPostMeta($id, 'gigtune_booking_status', 'REQUESTED');
-        $this->upsertPostMeta($id, 'gigtune_booking_event_date', (string) ($payload['event_date'] ?? ''));
+        $this->upsertPostMeta($id, 'gigtune_booking_event_date', $eventDate);
         $this->upsertPostMeta($id, 'gigtune_booking_end_time', (string) ($payload['end_time'] ?? ''));
         $this->upsertPostMeta($id, 'gigtune_booking_budget', (string) ($payload['budget'] ?? ''));
         $this->upsertPostMeta($id, 'gigtune_booking_notes', (string) ($payload['notes'] ?? ''));

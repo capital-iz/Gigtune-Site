@@ -1028,12 +1028,16 @@ class AdminPortalController extends Controller
         $posts = $this->tablePrefix() . 'posts';
         $nowLocal = now();
         $nowUtc = now('UTC');
+        $title = function_exists('mb_substr')
+            ? mb_substr($message, 0, 255)
+            : substr($message, 0, 255);
+
         $notificationId = (int) $db->table($posts)->insertGetId([
             'post_author' => 0,
             'post_date' => $nowLocal->format('Y-m-d H:i:s'),
             'post_date_gmt' => $nowUtc->format('Y-m-d H:i:s'),
             'post_content' => '',
-            'post_title' => mb_substr($message, 0, 255),
+            'post_title' => $title,
             'post_excerpt' => '',
             'post_status' => 'publish',
             'comment_status' => 'closed',

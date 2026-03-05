@@ -521,6 +521,121 @@ class AdminPortalController extends Controller
         return $this->redirectWithAdminFlash('refunds', $action);
     }
 
+    public function applyComplianceOverride(Request $request): RedirectResponse
+    {
+        $payload = $request->validate([
+            'user_id' => ['required', 'integer', 'min:1'],
+            'email_verified' => ['nullable', 'string', 'in:0,1'],
+            'policies_accepted' => ['nullable', 'string', 'in:0,1'],
+            'kyc_status' => ['nullable', 'string', 'in:unsubmitted,pending,verified,rejected,locked'],
+            'profile_visibility' => ['nullable', 'string', 'in:auto,force_visible,force_hidden'],
+            'note' => ['nullable', 'string', 'max:500'],
+        ]);
+
+        $actorId = $this->currentAdminUserId($request);
+        if ($actorId <= 0) {
+            return $this->redirectWithAdminFlash('compliance', '', 'insufficient_permissions');
+        }
+
+        $targetUserId = (int) ($payload['user_id'] ?? 0);
+        $targetExists = $this->wordpressDb()
+            ->table($this->tablePrefix() . 'users')
+            ->where('ID', $targetUserId)
+            ->exists();
+        if ($targetUserId <= 0 || !$targetExists) {
+            return $this->redirectWithAdminFlash('compliance', '', 'invalid_user');
+        }
+
+        $note = trim((string) ($payload['note'] ?? ''));
+        $changed = false;
+        $audit = [
+            'at' => now()->toDateTimeString(),
+            'actor_user_id' => $actorId,
+            'target_user_id' => $targetUserId,
+            'note' => $note,
+            'changes' => [],
+        ];
+
+        if (array_key_exists('email_verified', $payload)) {
+            $emailVerified = (string) $payload['email_verified'] === '1';
+            $this->upsertUserMeta($targetUserId, 'gigtune_email_verified', $emailVerified ? '1' : '0');
+            $this->upsertUserMeta($targetUserId, 'gigtune_email_verification_required', $emailVerified ? '0' : '1');
+            if ($emailVerified) {
+                $this->upsertUserMeta($targetUserId, 'gigtune_email_verified_at', (string) now()->timestamp);
+                $this->upsertUserMeta($targetUserId, 'gigtune_email_verification_token_hash', '');
+                $this->upsertUserMeta($targetUserId, 'gigtune_email_verification_expires_at', '');
+            } else {
+                $this->deleteUserMeta($targetUserId, 'gigtune_email_verified_at');
+            }
+            $audit['changes']['email_verified'] = $emailVerified ? '1' : '0';
+            $changed = true;
+        }
+
+        if (array_key_exists('policies_accepted', $payload)) {
+            $acceptPolicies = (string) $payload['policies_accepted'] === '1';
+            $requiredPolicies = $this->users->requiredPolicyVersions();
+            if ($acceptPolicies) {
+                $this->users->storePolicyAcceptance($targetUserId, array_keys($requiredPolicies));
+            } else {
+                $this->deleteUserMeta($targetUserId, 'gigtune_policy_acceptance');
+                $this->deleteUserMeta($targetUserId, 'gigtune_terms_acceptance');
+                $this->deleteUserMeta($targetUserId, 'gigtune_terms_accepted');
+                $this->deleteUserMeta($targetUserId, 'gigtune_terms_version');
+                $this->deleteUserMeta($targetUserId, 'gigtune_accept_terms');
+                $this->deleteUserMeta($targetUserId, 'gigtune_accept_aup');
+                $this->deleteUserMeta($targetUserId, 'gigtune_accept_privacy');
+                $this->deleteUserMeta($targetUserId, 'gigtune_accept_refund');
+            }
+            $audit['changes']['policies_accepted'] = $acceptPolicies ? '1' : '0';
+            $changed = true;
+        }
+
+        if (array_key_exists('kyc_status', $payload)) {
+            $kycStatus = $this->normalizeKycUserStatus((string) $payload['kyc_status']);
+            $this->upsertUserMeta($targetUserId, 'gigtune_kyc_status', $kycStatus);
+            $this->upsertUserMeta($targetUserId, 'gigtune_kyc_updated_at', (string) now()->timestamp);
+            if ($kycStatus === 'verified') {
+                $this->upsertUserMeta($targetUserId, 'gigtune_kyc_verified_at', (string) now()->timestamp);
+            }
+            if ($kycStatus === 'locked') {
+                $this->upsertUserMeta($targetUserId, 'gigtune_kyc_locked_at', (string) now()->timestamp);
+            }
+            if ($kycStatus === 'rejected') {
+                $this->upsertUserMeta($targetUserId, 'gigtune_kyc_rejected_at', (string) now()->timestamp);
+            }
+            $audit['changes']['kyc_status'] = $kycStatus;
+            $changed = true;
+        }
+
+        if (array_key_exists('profile_visibility', $payload)) {
+            $visibility = trim((string) ($payload['profile_visibility'] ?? 'auto'));
+            if (!in_array($visibility, ['auto', 'force_visible', 'force_hidden'], true)) {
+                $visibility = 'auto';
+            }
+            $this->upsertUserMeta($targetUserId, 'gigtune_profile_visibility_override', $visibility);
+            $audit['changes']['profile_visibility'] = $visibility;
+            $changed = true;
+        }
+
+        if (!$changed) {
+            return $this->redirectWithAdminFlash('compliance', '', 'no_changes_supplied');
+        }
+
+        $existingAudit = $this->decodeMaybeSerialized($this->getLatestUserMetaValue($targetUserId, 'gigtune_compliance_override_log'));
+        if (!is_array($existingAudit)) {
+            $existingAudit = [];
+        }
+        $existingAudit[] = $audit;
+        if (count($existingAudit) > 30) {
+            $existingAudit = array_slice($existingAudit, -30);
+        }
+        $this->upsertUserMeta($targetUserId, 'gigtune_compliance_override_log', serialize(array_values($existingAudit)));
+        $this->upsertUserMeta($targetUserId, 'gigtune_compliance_override_last_at', (string) now()->timestamp);
+        $this->upsertUserMeta($targetUserId, 'gigtune_compliance_override_last_by', (string) $actorId);
+
+        return $this->redirectWithAdminFlash('compliance', 'compliance_override_saved');
+    }
+
     private function currentAdminUserId(Request $request): int
     {
         $actor = $request->attributes->get('gigtune_user');
@@ -1356,7 +1471,7 @@ class AdminPortalController extends Controller
 
     private function resolveDashboardTab(string $tab): string
     {
-        $allowed = ['overview', 'users', 'payments', 'payouts', 'bookings', 'disputes', 'refunds', 'kyc', 'reports'];
+        $allowed = ['overview', 'users', 'compliance', 'payments', 'payouts', 'bookings', 'disputes', 'refunds', 'kyc', 'reports'];
         $normalized = trim(strtolower($tab));
         return in_array($normalized, $allowed, true) ? $normalized : 'overview';
     }
@@ -1365,6 +1480,7 @@ class AdminPortalController extends Controller
     {
         return match ($tab) {
             'users' => $this->loadAdminDashboardUsersTab($request),
+            'compliance' => $this->loadAdminDashboardComplianceTab($request),
             'payments' => [
                 'items' => $this->loadPostTypeRows(
                     'gigtune_booking',
@@ -1634,6 +1750,33 @@ class AdminPortalController extends Controller
             ],
             default => [],
         };
+    }
+
+    private function loadAdminDashboardComplianceTab(Request $request): array
+    {
+        $scope = strtolower(trim((string) $request->query('user_scope', 'artists')));
+        if (!in_array($scope, ['artists', 'clients'], true)) {
+            $scope = 'artists';
+        }
+
+        $items = $this->loadAdminDashboardScopedUsers($scope);
+        foreach ($items as &$item) {
+            $userId = (int) ($item['id'] ?? 0);
+            if ($userId <= 0) {
+                continue;
+            }
+            $item['profile_visibility_override'] = trim($this->getLatestUserMetaValue($userId, 'gigtune_profile_visibility_override'));
+            if (!in_array($item['profile_visibility_override'], ['auto', 'force_visible', 'force_hidden'], true)) {
+                $item['profile_visibility_override'] = 'auto';
+            }
+            $item['profile_visible_effective'] = $this->isProfileVisibleEffective($userId, $item['profile_visibility_override']);
+        }
+        unset($item);
+
+        return [
+            'user_scope' => $scope,
+            'items' => $items,
+        ];
     }
 
     private function loadAdminDashboardUsersTab(Request $request): array
@@ -1949,6 +2092,8 @@ class AdminPortalController extends Controller
                 'policies_accepted' => false,
                 'kyc_status' => 'unsubmitted',
                 'kyc_label' => $this->kycStatusLabel('unsubmitted'),
+                'profile_visibility_override' => 'auto',
+                'profile_visible_effective' => false,
                 'all_verified' => false,
             ];
         }
@@ -1961,14 +2106,52 @@ class AdminPortalController extends Controller
             $policiesAccepted = false;
         }
         $kycStatus = $this->normalizeKycUserStatus($this->getLatestUserMetaValue($userId, 'gigtune_kyc_status'));
+        $visibilityOverride = trim($this->getLatestUserMetaValue($userId, 'gigtune_profile_visibility_override'));
+        if (!in_array($visibilityOverride, ['auto', 'force_visible', 'force_hidden'], true)) {
+            $visibilityOverride = 'auto';
+        }
+        $profileVisible = $this->isProfileVisibleEffective($userId, $visibilityOverride);
 
         return [
             'email_verified' => $emailVerified,
             'policies_accepted' => $policiesAccepted,
             'kyc_status' => $kycStatus,
             'kyc_label' => $this->kycStatusLabel($kycStatus),
-            'all_verified' => ($emailVerified && $policiesAccepted && $kycStatus === 'verified'),
+            'profile_visibility_override' => $visibilityOverride,
+            'profile_visible_effective' => $profileVisible,
+            'all_verified' => ($emailVerified && $policiesAccepted && $kycStatus === 'verified' && $profileVisible),
         ];
+    }
+
+    private function isProfileVisibleEffective(int $userId, string $visibilityOverride): bool
+    {
+        $visibilityOverride = trim($visibilityOverride);
+        if ($visibilityOverride === 'force_visible') {
+            return true;
+        }
+        if ($visibilityOverride === 'force_hidden') {
+            return false;
+        }
+
+        $profileId = abs((int) $this->getLatestUserMetaValue($userId, 'gigtune_artist_profile_id'));
+        if ($profileId <= 0) {
+            $profileId = abs((int) $this->getLatestUserMetaValue($userId, 'gigtune_client_profile_id'));
+        }
+        if ($profileId <= 0) {
+            return false;
+        }
+
+        $post = $this->wordpressDb()
+            ->table($this->tablePrefix() . 'posts')
+            ->select(['ID', 'post_status'])
+            ->where('ID', $profileId)
+            ->first();
+        if ($post === null) {
+            return false;
+        }
+
+        $status = strtolower(trim((string) ($post->post_status ?? '')));
+        return in_array($status, ['publish', 'private'], true);
     }
 
     private function kycStatusLabel(string $status): string

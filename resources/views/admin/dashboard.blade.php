@@ -57,7 +57,7 @@
                 </div>
 
                 @php
-                    $tabs = ['overview', 'users', 'payments', 'payouts', 'bookings', 'disputes', 'refunds', 'kyc', 'reports'];
+                    $tabs = ['overview', 'users', 'compliance', 'payments', 'payouts', 'bookings', 'disputes', 'refunds', 'kyc', 'reports'];
                 @endphp
                 <div class="mt-5 flex flex-wrap gap-2">
                     @foreach ($tabs as $tab)
@@ -271,6 +271,94 @@
                                 @endforeach
                             </div>
                         @endif
+                    @endif
+                </div>
+            @endif
+
+            @if ($activeTab === 'compliance')
+                @php
+                    $complianceScope = $tabData['user_scope'] ?? 'artists';
+                @endphp
+                <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
+                    <div class="flex flex-wrap items-center justify-between gap-3">
+                        <div>
+                            <h4 class="text-base font-semibold text-white">Compliance Overrides</h4>
+                            <p class="mt-1 text-xs text-slate-300">Admin emergency controls for KYC, policy acceptance, email verification, and profile visibility.</p>
+                        </div>
+                        <div class="flex flex-wrap gap-2">
+                            <a href="/admin-dashboard/compliance?user_scope=artists"
+                                class="inline-flex items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold {{ $complianceScope === 'artists' ? 'text-white bg-gradient-to-r from-blue-600 to-purple-600' : 'text-white bg-white/10 hover:bg-white/15' }}">
+                                Artists
+                            </a>
+                            <a href="/admin-dashboard/compliance?user_scope=clients"
+                                class="inline-flex items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold {{ $complianceScope === 'clients' ? 'text-white bg-gradient-to-r from-blue-600 to-purple-600' : 'text-white bg-white/10 hover:bg-white/15' }}">
+                                Clients
+                            </a>
+                        </div>
+                    </div>
+
+                    @if (empty($tabData['items']))
+                        <p class="mt-4 text-sm text-slate-300">No users found for this scope.</p>
+                    @else
+                        <div class="mt-4 space-y-3">
+                            @foreach (($tabData['items'] ?? []) as $item)
+                                @php
+                                    $compliance = is_array($item['compliance'] ?? null) ? $item['compliance'] : [];
+                                    $override = (string) ($item['profile_visibility_override'] ?? 'auto');
+                                    $visibleNow = (bool) ($item['profile_visible_effective'] ?? false);
+                                @endphp
+                                <div class="rounded-xl border border-white/10 bg-black/20 p-4">
+                                    <div class="flex flex-wrap items-center justify-between gap-3">
+                                        <div>
+                                            <div class="text-sm font-semibold text-white">{{ $item['public_name'] ?? ('User #' . ($item['id'] ?? '')) }} (User #{{ $item['id'] }})</div>
+                                            <div class="mt-1 text-xs text-slate-300">Username: {{ $item['login'] ?? '-' }} | Email: {{ $item['email'] ?? '-' }}</div>
+                                            <div class="mt-1 text-xs text-slate-300">Current: Email {{ !empty($compliance['email_verified']) ? 'verified' : 'unverified' }}, Policies {{ !empty($compliance['policies_accepted']) ? 'accepted' : 'pending' }}, KYC {{ $sentenceCase((string) ($compliance['kyc_status'] ?? 'unsubmitted')) }}, Profile {{ $visibleNow ? 'visible' : 'hidden' }}</div>
+                                        </div>
+                                    </div>
+                                    <form method="post" action="/admin-dashboard/compliance/apply" class="mt-3 grid gap-3 md:grid-cols-5">
+                                        @csrf
+                                        <input type="hidden" name="user_id" value="{{ $item['id'] }}">
+                                        <div>
+                                            <label class="mb-1 block text-xs text-slate-300">Email verification</label>
+                                            <select name="email_verified" class="gigtune-admin-select w-full rounded-lg bg-slate-950/50 border border-white/10 px-3 py-2 text-white text-sm">
+                                                <option value="1" @selected(!empty($compliance['email_verified']))>Verified</option>
+                                                <option value="0" @selected(empty($compliance['email_verified']))>Unverified</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="mb-1 block text-xs text-slate-300">Policy acceptance</label>
+                                            <select name="policies_accepted" class="gigtune-admin-select w-full rounded-lg bg-slate-950/50 border border-white/10 px-3 py-2 text-white text-sm">
+                                                <option value="1" @selected(!empty($compliance['policies_accepted']))>Accepted</option>
+                                                <option value="0" @selected(empty($compliance['policies_accepted']))>Pending</option>
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="mb-1 block text-xs text-slate-300">KYC status</label>
+                                            <select name="kyc_status" class="gigtune-admin-select w-full rounded-lg bg-slate-950/50 border border-white/10 px-3 py-2 text-white text-sm">
+                                                @foreach (['unsubmitted', 'pending', 'verified', 'rejected', 'locked'] as $kycStatus)
+                                                    <option value="{{ $kycStatus }}" @selected(($compliance['kyc_status'] ?? 'unsubmitted') === $kycStatus)>{{ $sentenceCase($kycStatus) }}</option>
+                                                @endforeach
+                                            </select>
+                                        </div>
+                                        <div>
+                                            <label class="mb-1 block text-xs text-slate-300">Profile visibility</label>
+                                            <select name="profile_visibility" class="gigtune-admin-select w-full rounded-lg bg-slate-950/50 border border-white/10 px-3 py-2 text-white text-sm">
+                                                <option value="auto" @selected($override === 'auto')>Auto</option>
+                                                <option value="force_visible" @selected($override === 'force_visible')>Force visible</option>
+                                                <option value="force_hidden" @selected($override === 'force_hidden')>Force hidden</option>
+                                            </select>
+                                        </div>
+                                        <div class="md:col-span-1">
+                                            <label class="mb-1 block text-xs text-slate-300">Admin note</label>
+                                            <input type="text" name="note" value="" placeholder="Optional reason" class="w-full rounded-lg bg-slate-950/50 border border-white/10 px-3 py-2 text-white text-sm">
+                                        </div>
+                                        <div class="md:col-span-5">
+                                            <button type="submit" class="inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500">Apply override</button>
+                                        </div>
+                                    </form>
+                                </div>
+                            @endforeach
+                        </div>
                     @endif
                 </div>
             @endif
@@ -696,16 +784,18 @@
                         var image = document.getElementById('gt-kyc-preview-image');
                         if (!modal || !stage || !frame || !image) return;
 
-                        var state = { mode: '', scale: 1, rotation: 0 };
+                        var state = { mode: '', scale: 1, rotation: 0, tx: 0, ty: 0, dragging: false, dragPointerId: null, dragStartX: 0, dragStartY: 0, dragOriginX: 0, dragOriginY: 0 };
 
                         function applyTransform() {
                             if (state.mode !== 'image') return;
-                            image.style.transform = 'scale(' + state.scale + ') rotate(' + state.rotation + 'deg)';
+                            image.style.transform = 'translate(' + state.tx + 'px, ' + state.ty + 'px) scale(' + state.scale + ') rotate(' + state.rotation + 'deg)';
                         }
 
                         function fit() {
                             state.scale = 1;
                             state.rotation = 0;
+                            state.tx = 0;
+                            state.ty = 0;
                             applyTransform();
                             if (state.mode === 'pdf') {
                                 var src = frame.getAttribute('src') || '';
@@ -731,6 +821,7 @@
                                 frame.removeAttribute('src');
                                 image.classList.remove('hidden');
                                 image.setAttribute('src', safeUrl);
+                                image.style.cursor = 'grab';
                                 applyTransform();
                             }
                             modal.classList.remove('hidden');
@@ -745,6 +836,7 @@
                             image.classList.add('hidden');
                             image.removeAttribute('src');
                             image.style.transform = '';
+                            image.style.cursor = '';
                             state.mode = '';
                         }
 
@@ -797,6 +889,43 @@
                                 }
                             });
                         });
+                        stage.addEventListener('wheel', function (event) {
+                            if (state.mode !== 'image') return;
+                            event.preventDefault();
+                            var delta = event.deltaY > 0 ? -0.1 : 0.1;
+                            state.scale = Math.max(0.4, Math.min(6, state.scale + delta));
+                            applyTransform();
+                        }, { passive: false });
+                        stage.addEventListener('pointerdown', function (event) {
+                            if (state.mode !== 'image') return;
+                            state.dragging = true;
+                            state.dragPointerId = event.pointerId;
+                            state.dragStartX = event.clientX;
+                            state.dragStartY = event.clientY;
+                            state.dragOriginX = state.tx;
+                            state.dragOriginY = state.ty;
+                            image.style.cursor = 'grabbing';
+                            if (stage.setPointerCapture) {
+                                try { stage.setPointerCapture(event.pointerId); } catch (e) {}
+                            }
+                        });
+                        stage.addEventListener('pointermove', function (event) {
+                            if (!state.dragging || state.mode !== 'image' || state.dragPointerId !== event.pointerId) return;
+                            state.tx = state.dragOriginX + (event.clientX - state.dragStartX);
+                            state.ty = state.dragOriginY + (event.clientY - state.dragStartY);
+                            applyTransform();
+                        });
+                        function stopDrag(event) {
+                            if (!state.dragging) return;
+                            if (event && state.dragPointerId !== null && event.pointerId !== state.dragPointerId) return;
+                            state.dragging = false;
+                            state.dragPointerId = null;
+                            if (state.mode === 'image') {
+                                image.style.cursor = 'grab';
+                            }
+                        }
+                        stage.addEventListener('pointerup', stopDrag);
+                        stage.addEventListener('pointercancel', stopDrag);
                         modal.addEventListener('click', function (event) {
                             if (event.target === modal) closeModal();
                         });

@@ -255,6 +255,69 @@ class WordPressUserService
         return $updated;
     }
 
+    public function updateUserEmail(int $userId, string $email): array
+    {
+        $userId = abs($userId);
+        $email = trim(strtolower($email));
+        if ($userId <= 0) {
+            throw new \InvalidArgumentException('Invalid user ID.');
+        }
+        if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+            throw new \InvalidArgumentException('A valid email address is required.');
+        }
+
+        $current = $this->getUserById($userId);
+        if ($current === null) {
+            throw new \InvalidArgumentException('User not found.');
+        }
+        if (strtolower((string) ($current['email'] ?? '')) === $email) {
+            return $current;
+        }
+
+        $exists = $this->db()
+            ->table($this->usersTable())
+            ->where('user_email', $email)
+            ->where('ID', '!=', $userId)
+            ->exists();
+        if ($exists) {
+            throw new \InvalidArgumentException('That email is already in use.');
+        }
+
+        $this->db()
+            ->table($this->usersTable())
+            ->where('ID', $userId)
+            ->update(['user_email' => $email]);
+
+        $updated = $this->getUserById($userId);
+        if ($updated === null) {
+            throw new \RuntimeException('Failed to update user email.');
+        }
+
+        return $updated;
+    }
+
+    public function updateUserPassword(int $userId, string $password): void
+    {
+        $userId = abs($userId);
+        if ($userId <= 0) {
+            throw new \InvalidArgumentException('Invalid user ID.');
+        }
+        if ($password === '' || strlen($password) < 8) {
+            throw new \InvalidArgumentException('Password must be at least 8 characters.');
+        }
+        if ($this->getUserById($userId) === null) {
+            throw new \InvalidArgumentException('User not found.');
+        }
+
+        $this->db()
+            ->table($this->usersTable())
+            ->where('ID', $userId)
+            ->update([
+                'user_pass' => $this->passwordHasher->hash($password),
+                'user_activation_key' => '',
+            ]);
+    }
+
     public function deleteUserHard(int $userId): void
     {
         $userId = abs($userId);

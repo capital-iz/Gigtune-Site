@@ -91,7 +91,8 @@ Route::prefix('admin')->group(function (): void {
 Route::middleware(['gigtune.auth', 'gigtune.admin'])->group(function (): void {
     Route::get('/admin-dashboard', [AdminPortalController::class, 'dashboard']);
     Route::get('/admin-dashboard/{tab}', [AdminPortalController::class, 'dashboard'])
-        ->whereIn('tab', ['overview', 'users', 'payments', 'payouts', 'bookings', 'disputes', 'refunds', 'kyc', 'reports']);
+        ->whereIn('tab', ['overview', 'users', 'compliance', 'payments', 'payouts', 'bookings', 'disputes', 'refunds', 'kyc', 'reports']);
+    Route::post('/admin-dashboard/compliance/apply', [AdminPortalController::class, 'applyComplianceOverride']);
     Route::post('/admin-dashboard/payments/review', [AdminPortalController::class, 'reviewPayment']);
     Route::post('/admin-dashboard/payouts/review', [AdminPortalController::class, 'reviewPayout']);
     Route::post('/admin-dashboard/bookings/request-refund', [AdminPortalController::class, 'requestBookingRefund']);

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use Illuminate\Http\UploadedFile;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Support\Facades\DB;
 
@@ -284,10 +285,42 @@ class GigTuneShortcodeService
                 $out[$taxonomy][$slug] = ['slug' => $slug, 'name' => (string) $row->name];
             }
         }
+
+        $fallbacks = $this->taxonomyDefaultOptions();
+        foreach ($fallbacks as $taxonomy => $terms) {
+            if (!isset($out[$taxonomy]) || !is_array($out[$taxonomy])) {
+                $out[$taxonomy] = [];
+            }
+            foreach ($terms as $term) {
+                $slug = trim((string) ($term['slug'] ?? ''));
+                if ($slug === '' || isset($out[$taxonomy][$slug])) {
+                    continue;
+                }
+                $out[$taxonomy][$slug] = [
+                    'slug' => $slug,
+                    'name' => trim((string) ($term['name'] ?? $slug)),
+                ];
+            }
+        }
+
         foreach ($out as $k => $v) {
             $out[$k] = array_values($v);
         }
         return $out;
+    }
+
+    /** @return array<string,array<int,array{slug:string,name:string}>> */
+    private function taxonomyDefaultOptions(): array
+    {
+        return [
+            'performer_type' => [
+                ['slug' => 'instrumentalist', 'name' => 'Instrumentalist'],
+                ['slug' => 'vocalist', 'name' => 'Vocalist'],
+            ],
+            'keyboard_parts' => [
+                ['slug' => 'durban-style', 'name' => 'Durban Style'],
+            ],
+        ];
     }
 
     /** @param array<string,bool> $preferences */
@@ -299,7 +332,7 @@ class GigTuneShortcodeService
     private function roleNav(array $a, ?array $u): string { return is_array($u) ? '<div class="mb-4 flex flex-wrap gap-2"><a class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200" href="/my-account-page/">Account</a><a class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200" href="/messages/">Messages</a><a class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200" href="/notifications/">Notifications</a></div>' : ''; }
     private function artistDashboard(array $a, ?array $u): string { return $this->dashboardShell($u, true); }
     private function clientDashboard(array $a, ?array $u): string { return $this->dashboardShell($u, false); }
-    private function artistFeed(array $a): string { return $this->psaCards(max(1, min(30, (int) ($a['limit'] ?? 12)))); }
+    private function artistFeed(array $a, ?array $u = null, array $ctx = []): string { return $this->renderPsaFeed($a, $u, $ctx); }
     private function artistDirectory(array $a): string { return $this->artistCards(max(1, min(60, (int) ($a['limit'] ?? 18)))); }
     private function featuredArtists(array $a): string { return $this->artistCards(max(1, min(12, (int) ($a['limit'] ?? 6)))); }
     private function clientDirectory(array $a): string
@@ -449,6 +482,13 @@ class GigTuneShortcodeService
             $baseArea = trim((string) $request->input('gigtune_client_base_area', ''));
             $province = trim((string) $request->input('gigtune_client_province', ''));
             $city = trim((string) $request->input('gigtune_client_city', ''));
+            $streetAddress = trim((string) $request->input('gigtune_client_address_street', ''));
+            $suburb = trim((string) $request->input('gigtune_client_address_suburb', ''));
+            $postalCode = trim((string) $request->input('gigtune_client_address_postal_code', ''));
+            $country = trim((string) $request->input('gigtune_client_address_country', 'South Africa'));
+            if ($country === '') {
+                $country = 'South Africa';
+            }
             $company = trim((string) $request->input('gigtune_client_company', ''));
             $phone = trim((string) $request->input('gigtune_client_phone', ''));
             $bankAccountName = trim((string) $request->input('gigtune_client_bank_account_name', ''));
@@ -460,7 +500,17 @@ class GigTuneShortcodeService
             }
 
             $phoneDigits = preg_replace('/\D+/', '', $phone) ?? '';
-            if ($title === '' || $bio === '' || $baseArea === '' || $company === '' || strlen($phoneDigits) < 9) {
+            if (
+                $title === '' ||
+                $bio === '' ||
+                $baseArea === '' ||
+                $company === '' ||
+                strlen($phoneDigits) < 9 ||
+                $streetAddress === '' ||
+                $city === '' ||
+                $province === '' ||
+                $postalCode === ''
+            ) {
                 $errorMessage = 'Please complete all required profile fields.';
             } else {
                 $this->db()->table($this->posts())
@@ -476,6 +526,11 @@ class GigTuneShortcodeService
                 $this->upsertPostMeta($profileId, 'gigtune_client_base_area', $baseArea);
                 $this->upsertPostMeta($profileId, 'gigtune_client_province', $province);
                 $this->upsertPostMeta($profileId, 'gigtune_client_city', $city);
+                $this->upsertPostMeta($profileId, 'gigtune_client_address_street', $streetAddress);
+                $this->upsertPostMeta($profileId, 'gigtune_client_address_suburb', $suburb);
+                $this->upsertPostMeta($profileId, 'gigtune_client_address_city', $city);
+                $this->upsertPostMeta($profileId, 'gigtune_client_address_postal_code', $postalCode);
+                $this->upsertPostMeta($profileId, 'gigtune_client_address_country', $country);
                 $this->upsertPostMeta($profileId, 'gigtune_client_company', $company);
                 $this->upsertPostMeta($profileId, 'gigtune_client_phone', $phone);
                 $this->upsertPostMeta($profileId, 'gigtune_client_bank_account_name', $bankAccountName);
@@ -483,6 +538,49 @@ class GigTuneShortcodeService
                 $this->upsertPostMeta($profileId, 'gigtune_client_bank_name', $bankName);
                 $this->upsertPostMeta($profileId, 'gigtune_client_branch_code', $branchCode);
                 $this->upsertPostMeta($profileId, 'gigtune_client_bank_code', $branchCode);
+
+                $removePhoto = (string) $request->input('gt_remove_profile_photo', '') === '1' || (string) $request->input('gigtune_client_photo_remove', '') === '1';
+                if ($removePhoto) {
+                    $existingPhotoId = (int) ($this->getLatestPostMeta($profileId, 'gigtune_client_photo_id'));
+                    if ($existingPhotoId > 0) {
+                        $this->deleteAttachment($existingPhotoId);
+                    }
+                    $this->upsertPostMeta($profileId, 'gigtune_client_photo_id', '0');
+                }
+                $removeBanner = (string) $request->input('gt_remove_profile_banner', '') === '1' || (string) $request->input('gigtune_client_banner_remove', '') === '1';
+                if ($removeBanner) {
+                    $existingBannerId = (int) ($this->getLatestPostMeta($profileId, 'gigtune_client_banner_id'));
+                    if ($existingBannerId > 0) {
+                        $this->deleteAttachment($existingBannerId);
+                    }
+                    $this->upsertPostMeta($profileId, 'gigtune_client_banner_id', '0');
+                }
+
+                $photoFile = $request->file('gt_profile_photo_file');
+                if (!($photoFile instanceof UploadedFile)) {
+                    $photoFile = $request->file('gigtune_client_photo');
+                }
+                $photoId = $this->saveUploadedAttachment($photoFile, $uid, $profileId, 'Client Profile Photo');
+                if ($photoId > 0) {
+                    $oldPhotoId = (int) $this->getLatestPostMeta($profileId, 'gigtune_client_photo_id');
+                    if ($oldPhotoId > 0 && $oldPhotoId !== $photoId) {
+                        $this->deleteAttachment($oldPhotoId);
+                    }
+                    $this->upsertPostMeta($profileId, 'gigtune_client_photo_id', (string) $photoId);
+                }
+
+                $bannerFile = $request->file('gt_profile_banner_file');
+                if (!($bannerFile instanceof UploadedFile)) {
+                    $bannerFile = $request->file('gigtune_client_banner');
+                }
+                $bannerId = $this->saveUploadedAttachment($bannerFile, $uid, $profileId, 'Client Profile Banner');
+                if ($bannerId > 0) {
+                    $oldBannerId = (int) $this->getLatestPostMeta($profileId, 'gigtune_client_banner_id');
+                    if ($oldBannerId > 0 && $oldBannerId !== $bannerId) {
+                        $this->deleteAttachment($oldBannerId);
+                    }
+                    $this->upsertPostMeta($profileId, 'gigtune_client_banner_id', (string) $bannerId);
+                }
 
                 $statusMessage = 'Profile saved.';
             }
@@ -500,6 +598,11 @@ class GigTuneShortcodeService
             'gigtune_client_base_area',
             'gigtune_client_province',
             'gigtune_client_city',
+            'gigtune_client_address_street',
+            'gigtune_client_address_suburb',
+            'gigtune_client_address_city',
+            'gigtune_client_address_postal_code',
+            'gigtune_client_address_country',
             'gigtune_client_company',
             'gigtune_client_phone',
             'gigtune_client_bank_account_name',
@@ -507,13 +610,17 @@ class GigTuneShortcodeService
             'gigtune_client_bank_name',
             'gigtune_client_branch_code',
             'gigtune_client_bank_code',
+            'gigtune_client_photo_id',
+            'gigtune_client_banner_id',
         ])[$profileId] ?? [];
         $branchCode = (string) ($meta['gigtune_client_branch_code'] ?? '');
         if ($branchCode === '') {
             $branchCode = (string) ($meta['gigtune_client_bank_code'] ?? '');
         }
+        $photoUrl = $this->attachmentUrl((int) ($meta['gigtune_client_photo_id'] ?? 0));
+        $bannerUrl = $this->attachmentUrl((int) ($meta['gigtune_client_banner_id'] ?? 0));
 
-        $html = '<form method="post" class="space-y-6 rounded-2xl border border-white/10 bg-white/5 p-6">';
+        $html = '<form method="post" enctype="multipart/form-data" class="space-y-6 rounded-2xl border border-white/10 bg-white/5 p-6">';
         if ($statusMessage !== '') {
             $html .= '<div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">' . e($statusMessage) . '</div>';
         }
@@ -523,12 +630,36 @@ class GigTuneShortcodeService
 
         $html .= '<input type="hidden" name="gigtune_client_profile_submit" value="1">';
         $html .= '<div class="grid gap-4 md:grid-cols-2">';
+        $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-4">';
+        $html .= '<p class="mb-3 text-sm font-semibold text-white">Profile photo</p>';
+        if ($photoUrl !== '') {
+            $html .= '<img src="' . e($photoUrl) . '" alt="Client profile photo" class="h-24 w-24 rounded-full object-cover border border-white/10">';
+        } else {
+            $html .= '<div class="h-24 w-24 rounded-full border border-white/10 bg-slate-900/70 text-xs text-slate-400 flex items-center justify-center">No photo</div>';
+        }
+        $html .= '<div class="mt-3 space-y-2"><input type="file" name="gt_profile_photo_file" accept="image/*" class="block w-full text-sm text-slate-200"><label class="inline-flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" name="gt_remove_profile_photo" value="1"> Remove current photo</label></div>';
+        $html .= '</div>';
+        $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-4">';
+        $html .= '<p class="mb-3 text-sm font-semibold text-white">Profile banner</p>';
+        if ($bannerUrl !== '') {
+            $html .= '<img src="' . e($bannerUrl) . '" alt="Client profile banner" class="h-24 w-full rounded-xl object-cover border border-white/10">';
+        } else {
+            $html .= '<div class="h-24 w-full rounded-xl border border-white/10 bg-slate-900/70 text-xs text-slate-400 flex items-center justify-center">No banner image</div>';
+        }
+        $html .= '<div class="mt-3 space-y-2"><input type="file" name="gt_profile_banner_file" accept="image/*" class="block w-full text-sm text-slate-200"><label class="inline-flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" name="gt_remove_profile_banner" value="1"> Remove current banner</label></div>';
+        $html .= '</div>';
+        $html .= '</div>';
+        $html .= '<div class="grid gap-4 md:grid-cols-2">';
         $html .= '<div><label class="mb-1 block text-sm text-slate-300">Display name *</label><input required name="gigtune_client_title" value="' . e((string) ($post->post_title ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
         $html .= '<div><label class="mb-1 block text-sm text-slate-300">Company *</label><input required name="gigtune_client_company" value="' . e((string) ($meta['gigtune_client_company'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
         $html .= '<div><label class="mb-1 block text-sm text-slate-300">Phone *</label><input required name="gigtune_client_phone" value="' . e((string) ($meta['gigtune_client_phone'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
         $html .= '<div><label class="mb-1 block text-sm text-slate-300">Base area *</label><input required name="gigtune_client_base_area" value="' . e((string) ($meta['gigtune_client_base_area'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
-        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Province</label><input name="gigtune_client_province" value="' . e((string) ($meta['gigtune_client_province'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
-        $html .= '<div><label class="mb-1 block text-sm text-slate-300">City</label><input name="gigtune_client_city" value="' . e((string) ($meta['gigtune_client_city'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Province</label><input required name="gigtune_client_province" value="' . e((string) ($meta['gigtune_client_province'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Town/City</label><input required name="gigtune_client_city" value="' . e((string) (($meta['gigtune_client_address_city'] ?? '') !== '' ? ($meta['gigtune_client_address_city'] ?? '') : ($meta['gigtune_client_city'] ?? ''))) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Street address</label><input required name="gigtune_client_address_street" value="' . e((string) ($meta['gigtune_client_address_street'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Suburb</label><input name="gigtune_client_address_suburb" value="' . e((string) ($meta['gigtune_client_address_suburb'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Postcode</label><input required name="gigtune_client_address_postal_code" value="' . e((string) ($meta['gigtune_client_address_postal_code'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Country</label><input required name="gigtune_client_address_country" value="' . e((string) (($meta['gigtune_client_address_country'] ?? '') !== '' ? ($meta['gigtune_client_address_country'] ?? '') : 'South Africa')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
         $html .= '<div class="md:col-span-2"><label class="mb-1 block text-sm text-slate-300">Bio *</label><textarea required name="gigtune_client_bio" rows="4" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white">' . e((string) ($post->post_content ?? '')) . '</textarea></div>';
         $html .= '</div>';
 
@@ -738,6 +869,15 @@ class GigTuneShortcodeService
             $profileName = trim((string) $request->input('profile_name', ''));
             $profileBio = trim((string) $request->input('profile_bio', ''));
             $baseArea = trim((string) $request->input('gigtune_artist_base_area', ''));
+            $addressStreet = trim((string) $request->input('gigtune_artist_address_street', ''));
+            $addressSuburb = trim((string) $request->input('gigtune_artist_address_suburb', ''));
+            $addressCity = trim((string) $request->input('gigtune_artist_address_city', ''));
+            $addressProvince = trim((string) $request->input('gigtune_artist_address_province', ''));
+            $addressPostalCode = trim((string) $request->input('gigtune_artist_address_postal_code', ''));
+            $addressCountry = trim((string) $request->input('gigtune_artist_address_country', 'South Africa'));
+            if ($addressCountry === '') {
+                $addressCountry = 'South Africa';
+            }
             $priceMin = max(0, (int) $request->input('gigtune_artist_price_min', 0));
             $priceMax = max(0, (int) $request->input('gigtune_artist_price_max', 0));
             $travelRadius = max(0, (int) $request->input('gigtune_artist_travel_radius_km', 0));
@@ -787,7 +927,37 @@ class GigTuneShortcodeService
             $endTime = trim((string) $request->input('gigtune_artist_availability_end_time', ''));
             $slots = trim((string) $request->input('gigtune_artist_availability_slots', ''));
 
-            if ($profileName === '' || $profileBio === '' || $baseArea === '' || $priceMin <= 0 || $priceMax <= 0 || $startTime === '' || $endTime === '') {
+            $taxonomySelections = [];
+            foreach (['performer_type', 'instrument_category', 'keyboard_parts', 'vocal_type', 'vocal_role'] as $taxonomy) {
+                $rawTerms = $request->input($taxonomy, []);
+                $slugs = [];
+                if (is_array($rawTerms)) {
+                    foreach ($rawTerms as $slug) {
+                        $slug = strtolower(trim((string) $slug));
+                        $slug = preg_replace('/[^a-z0-9_-]+/', '-', $slug) ?? '';
+                        $slug = trim($slug, '-');
+                        if ($slug !== '') {
+                            $slugs[$slug] = $slug;
+                        }
+                    }
+                }
+                $taxonomySelections[$taxonomy] = array_values($slugs);
+            }
+
+            if (
+                $profileName === '' ||
+                $profileBio === '' ||
+                $baseArea === '' ||
+                $addressStreet === '' ||
+                $addressCity === '' ||
+                $addressProvince === '' ||
+                $addressPostalCode === '' ||
+                $priceMin <= 0 ||
+                $priceMax <= 0 ||
+                $startTime === '' ||
+                $endTime === '' ||
+                count($taxonomySelections['performer_type'] ?? []) < 1
+            ) {
                 $errorMessage = 'Please complete all required profile fields.';
             } else {
                 if ($priceMax > 0 && $priceMin > $priceMax) {
@@ -809,6 +979,12 @@ class GigTuneShortcodeService
                 $this->upsertPostMeta($profileId, 'gigtune_artist_available_now', $availableNow);
                 $this->upsertPostMeta($profileId, 'gigtune_artist_visibility_mode', $visibilityMode);
                 $this->upsertPostMeta($profileId, 'gigtune_artist_base_area', $baseArea);
+                $this->upsertPostMeta($profileId, 'gigtune_artist_address_street', $addressStreet);
+                $this->upsertPostMeta($profileId, 'gigtune_artist_address_suburb', $addressSuburb);
+                $this->upsertPostMeta($profileId, 'gigtune_artist_address_city', $addressCity);
+                $this->upsertPostMeta($profileId, 'gigtune_artist_address_province', $addressProvince);
+                $this->upsertPostMeta($profileId, 'gigtune_artist_address_postal_code', $addressPostalCode);
+                $this->upsertPostMeta($profileId, 'gigtune_artist_address_country', $addressCountry);
                 $this->upsertPostMeta($profileId, 'gigtune_artist_travel_radius_km', (string) $travelRadius);
                 $this->upsertPostMeta($profileId, 'gigtune_artist_price_min', (string) $priceMin);
                 $this->upsertPostMeta($profileId, 'gigtune_artist_price_max', (string) $priceMax);
@@ -835,6 +1011,122 @@ class GigTuneShortcodeService
                 $this->upsertPostMeta($profileId, 'gigtune_artist_branch_code', $branchCode);
                 $this->upsertPostMeta($profileId, 'gigtune_artist_bank_code', $branchCode);
 
+                foreach ($taxonomySelections as $taxonomy => $slugs) {
+                    $this->syncPostTermsBySlugs($profileId, $taxonomy, $slugs);
+                }
+
+                $removePhoto = (string) $request->input('gt_remove_profile_photo', '') === '1' || (string) $request->input('gigtune_artist_photo_remove', '') === '1';
+                if ($removePhoto) {
+                    $existingPhotoId = (int) ($this->getLatestPostMeta($profileId, 'gigtune_artist_photo_id'));
+                    if ($existingPhotoId > 0) {
+                        $this->deleteAttachment($existingPhotoId);
+                    }
+                    $this->upsertPostMeta($profileId, 'gigtune_artist_photo_id', '0');
+                }
+                $removeBanner = (string) $request->input('gt_remove_profile_banner', '') === '1' || (string) $request->input('gigtune_artist_banner_remove', '') === '1';
+                if ($removeBanner) {
+                    $existingBannerId = (int) ($this->getLatestPostMeta($profileId, 'gigtune_artist_banner_id'));
+                    if ($existingBannerId > 0) {
+                        $this->deleteAttachment($existingBannerId);
+                    }
+                    $this->upsertPostMeta($profileId, 'gigtune_artist_banner_id', '0');
+                }
+
+                $artistPhotoFile = $request->file('gt_profile_photo_file');
+                if (!($artistPhotoFile instanceof UploadedFile)) {
+                    $artistPhotoFile = $request->file('gigtune_artist_photo');
+                }
+                $photoId = $this->saveUploadedAttachment($artistPhotoFile, $uid, $profileId, 'Artist Profile Photo');
+                if ($photoId > 0) {
+                    $oldPhotoId = (int) $this->getLatestPostMeta($profileId, 'gigtune_artist_photo_id');
+                    if ($oldPhotoId > 0 && $oldPhotoId !== $photoId) {
+                        $this->deleteAttachment($oldPhotoId);
+                    }
+                    $this->upsertPostMeta($profileId, 'gigtune_artist_photo_id', (string) $photoId);
+                }
+                $artistBannerFile = $request->file('gt_profile_banner_file');
+                if (!($artistBannerFile instanceof UploadedFile)) {
+                    $artistBannerFile = $request->file('gigtune_artist_banner');
+                }
+                $bannerId = $this->saveUploadedAttachment($artistBannerFile, $uid, $profileId, 'Artist Profile Banner');
+                if ($bannerId > 0) {
+                    $oldBannerId = (int) $this->getLatestPostMeta($profileId, 'gigtune_artist_banner_id');
+                    if ($oldBannerId > 0 && $oldBannerId !== $bannerId) {
+                        $this->deleteAttachment($oldBannerId);
+                    }
+                    $this->upsertPostMeta($profileId, 'gigtune_artist_banner_id', (string) $bannerId);
+                }
+
+                $demoRaw = $this->maybe($this->getLatestPostMeta($profileId, 'gigtune_demo_videos'));
+                $demoItems = is_array($demoRaw) ? $demoRaw : [];
+                $normalizedDemoItems = [];
+                foreach ($demoItems as $item) {
+                    if (is_int($item) || ctype_digit((string) $item)) {
+                        $id = (int) $item;
+                        if ($id > 0) {
+                            $normalizedDemoItems[] = $id;
+                        }
+                        continue;
+                    }
+                    $url = trim((string) $item);
+                    if ($url !== '') {
+                        $normalizedDemoItems[] = $url;
+                    }
+                }
+                $demoItems = array_values(array_unique($normalizedDemoItems, SORT_REGULAR));
+
+                $removeDemoValues = $request->input('gigtune_remove_demo', []);
+                if (is_array($removeDemoValues) && $removeDemoValues !== []) {
+                    $removeSet = [];
+                    foreach ($removeDemoValues as $value) {
+                        $value = trim((string) $value);
+                        if ($value !== '') {
+                            $removeSet[$value] = true;
+                        }
+                    }
+                    $kept = [];
+                    foreach ($demoItems as $item) {
+                        $rawValue = (string) $item;
+                        if (isset($removeSet[$rawValue])) {
+                            if (is_int($item) || ctype_digit($rawValue)) {
+                                $this->deleteAttachment((int) $rawValue);
+                            }
+                            continue;
+                        }
+                        $kept[] = $item;
+                    }
+                    $demoItems = $kept;
+                }
+
+                $demoUrl = trim((string) $request->input('gigtune_demo_url', ''));
+                if ($demoUrl !== '') {
+                    $demoItems[] = $demoUrl;
+                }
+
+                $demoFiles = $request->file('gigtune_demo_videos');
+                if (is_array($demoFiles)) {
+                    foreach ($demoFiles as $demoFile) {
+                        $demoAttachmentId = $this->saveUploadedAttachment($demoFile, $uid, $profileId, 'Artist Demo Video');
+                        if ($demoAttachmentId > 0) {
+                            $demoItems[] = $demoAttachmentId;
+                        }
+                    }
+                } elseif ($demoFiles instanceof UploadedFile) {
+                    $demoAttachmentId = $this->saveUploadedAttachment($demoFiles, $uid, $profileId, 'Artist Demo Video');
+                    if ($demoAttachmentId > 0) {
+                        $demoItems[] = $demoAttachmentId;
+                    }
+                }
+
+                $dedupedDemoItems = [];
+                foreach ($demoItems as $item) {
+                    $key = is_int($item) || ctype_digit((string) $item) ? ('id:' . (int) $item) : ('url:' . trim((string) $item));
+                    if (!isset($dedupedDemoItems[$key])) {
+                        $dedupedDemoItems[$key] = is_int($item) || ctype_digit((string) $item) ? (int) $item : trim((string) $item);
+                    }
+                }
+                $this->upsertPostMeta($profileId, 'gigtune_demo_videos', serialize(array_values($dedupedDemoItems)));
+
                 $statusMessage = 'Profile updated successfully.';
             }
 
@@ -851,6 +1143,12 @@ class GigTuneShortcodeService
             'gigtune_artist_available_now',
             'gigtune_artist_visibility_mode',
             'gigtune_artist_base_area',
+            'gigtune_artist_address_street',
+            'gigtune_artist_address_suburb',
+            'gigtune_artist_address_city',
+            'gigtune_artist_address_province',
+            'gigtune_artist_address_postal_code',
+            'gigtune_artist_address_country',
             'gigtune_artist_travel_radius_km',
             'gigtune_artist_price_min',
             'gigtune_artist_price_max',
@@ -873,6 +1171,9 @@ class GigTuneShortcodeService
             'gigtune_artist_bank_name',
             'gigtune_artist_branch_code',
             'gigtune_artist_bank_code',
+            'gigtune_artist_photo_id',
+            'gigtune_artist_banner_id',
+            'gigtune_demo_videos',
         ])[$profileId] ?? [];
 
         $days = $this->days((string) ($meta['gigtune_artist_availability_days'] ?? ''));
@@ -883,8 +1184,36 @@ class GigTuneShortcodeService
         if ($branchCode === '') {
             $branchCode = (string) ($meta['gigtune_artist_bank_code'] ?? '');
         }
+        $photoUrl = $this->attachmentUrl((int) ($meta['gigtune_artist_photo_id'] ?? 0));
+        $bannerUrl = $this->attachmentUrl((int) ($meta['gigtune_artist_banner_id'] ?? 0));
+        $demoVideos = $this->demoVideos((string) ($meta['gigtune_demo_videos'] ?? ''));
+        $selectedTaxonomies = $this->postTermSlugs($profileId, ['performer_type', 'instrument_category', 'keyboard_parts', 'vocal_type', 'vocal_role']);
+        $taxonomyOptions = $this->getFilterOptions();
+        foreach ($selectedTaxonomies as $taxonomy => $selectedSlugs) {
+            if (!is_array($selectedSlugs) || $selectedSlugs === []) {
+                continue;
+            }
+            if (!isset($taxonomyOptions[$taxonomy]) || !is_array($taxonomyOptions[$taxonomy])) {
+                $taxonomyOptions[$taxonomy] = [];
+            }
+            $existing = [];
+            foreach ($taxonomyOptions[$taxonomy] as $term) {
+                $slug = trim((string) ($term['slug'] ?? ''));
+                if ($slug !== '') {
+                    $existing[$slug] = true;
+                }
+            }
+            foreach ($selectedSlugs as $slug) {
+                $slug = trim((string) $slug);
+                if ($slug === '' || isset($existing[$slug])) {
+                    continue;
+                }
+                $taxonomyOptions[$taxonomy][] = ['slug' => $slug, 'name' => ucwords(str_replace(['-', '_'], ' ', $slug))];
+                $existing[$slug] = true;
+            }
+        }
 
-        $html = '<form method="post" class="space-y-6 rounded-2xl border border-white/10 bg-white/5 p-6">';
+        $html = '<form method="post" enctype="multipart/form-data" class="space-y-6 rounded-2xl border border-white/10 bg-white/5 p-6">';
         if ($statusMessage !== '') {
             $html .= '<div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">' . e($statusMessage) . '</div>';
         }
@@ -894,10 +1223,69 @@ class GigTuneShortcodeService
 
         $html .= '<input type="hidden" name="gigtune_profile_submit" value="1">';
         $html .= '<div class="grid gap-4 md:grid-cols-2">';
+        $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-4">';
+        $html .= '<p class="mb-3 text-sm font-semibold text-white">Profile photo</p>';
+        if ($photoUrl !== '') {
+            $html .= '<img src="' . e($photoUrl) . '" alt="Artist profile photo" class="h-24 w-24 rounded-full object-cover border border-white/10">';
+        } else {
+            $html .= '<div class="h-24 w-24 rounded-full border border-white/10 bg-slate-900/70 text-xs text-slate-400 flex items-center justify-center">No photo</div>';
+        }
+        $html .= '<div class="mt-3 space-y-2"><input type="file" name="gt_profile_photo_file" accept="image/*" class="block w-full text-sm text-slate-200"><label class="inline-flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" name="gt_remove_profile_photo" value="1"> Remove current photo</label></div>';
+        $html .= '</div>';
+        $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-4">';
+        $html .= '<p class="mb-3 text-sm font-semibold text-white">Profile banner</p>';
+        if ($bannerUrl !== '') {
+            $html .= '<img src="' . e($bannerUrl) . '" alt="Artist profile banner" class="h-24 w-full rounded-xl object-cover border border-white/10">';
+        } else {
+            $html .= '<div class="h-24 w-full rounded-xl border border-white/10 bg-slate-900/70 text-xs text-slate-400 flex items-center justify-center">No banner image</div>';
+        }
+        $html .= '<div class="mt-3 space-y-2"><input type="file" name="gt_profile_banner_file" accept="image/*" class="block w-full text-sm text-slate-200"><label class="inline-flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" name="gt_remove_profile_banner" value="1"> Remove current banner</label></div>';
+        $html .= '</div>';
+        $html .= '</div>';
+
+        $html .= '<div class="grid gap-4 md:grid-cols-2">';
         $html .= '<div><label class="mb-1 block text-sm text-slate-300">Profile name *</label><input required name="profile_name" value="' . e((string) ($post->post_title ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
         $html .= '<div><label class="mb-1 block text-sm text-slate-300">Base area *</label><input required name="gigtune_artist_base_area" value="' . e((string) ($meta['gigtune_artist_base_area'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
         $html .= '<div class="md:col-span-2"><label class="mb-1 block text-sm text-slate-300">Bio *</label><textarea required name="profile_bio" rows="5" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white">' . e((string) ($post->post_content ?? '')) . '</textarea></div>';
         $html .= '</div>';
+
+        $html .= '<div class="grid gap-4 md:grid-cols-3">';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Street address *</label><input required name="gigtune_artist_address_street" value="' . e((string) ($meta['gigtune_artist_address_street'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Suburb</label><input name="gigtune_artist_address_suburb" value="' . e((string) ($meta['gigtune_artist_address_suburb'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Town/City *</label><input required name="gigtune_artist_address_city" value="' . e((string) ($meta['gigtune_artist_address_city'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Province *</label><select required name="gigtune_artist_address_province" class="gigtune-site-select w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"><option value="">Select province</option>';
+        foreach ($this->saProvinces() as $province) {
+            $selectedProvince = (string) ($meta['gigtune_artist_address_province'] ?? '') === $province ? ' selected' : '';
+            $html .= '<option value="' . e($province) . '"' . $selectedProvince . '>' . e($province) . '</option>';
+        }
+        $html .= '</select></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Postcode *</label><input required name="gigtune_artist_address_postal_code" value="' . e((string) ($meta['gigtune_artist_address_postal_code'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Country *</label><input required name="gigtune_artist_address_country" value="' . e((string) (($meta['gigtune_artist_address_country'] ?? '') !== '' ? ($meta['gigtune_artist_address_country'] ?? '') : 'South Africa')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '</div>';
+
+        $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-4"><p class="mb-2 text-sm font-semibold text-white">Categories</p><div class="grid gap-4 md:grid-cols-2">';
+        foreach (['performer_type' => 'Performer Type', 'instrument_category' => 'Instrument Category', 'keyboard_parts' => 'Keyboard Parts', 'vocal_type' => 'Vocal Type', 'vocal_role' => 'Vocal Role'] as $taxonomyKey => $taxonomyLabel) {
+            $terms = is_array($taxonomyOptions[$taxonomyKey] ?? null) ? $taxonomyOptions[$taxonomyKey] : [];
+            $selectedSlugs = is_array($selectedTaxonomies[$taxonomyKey] ?? null) ? $selectedTaxonomies[$taxonomyKey] : [];
+            $html .= '<div><p class="mb-2 text-sm text-slate-200">' . e($taxonomyLabel) . ($taxonomyKey === 'performer_type' ? ' <span class="text-xs text-rose-300">Required</span>' : '') . '</p>';
+            if ($terms === []) {
+                $html .= '<p class="text-xs text-slate-400">No terms available.</p>';
+            } else {
+                $html .= '<div class="grid grid-cols-2 gap-2">';
+                foreach ($terms as $term) {
+                    $slug = trim((string) ($term['slug'] ?? ''));
+                    $name = trim((string) ($term['name'] ?? $slug));
+                    if ($slug === '') {
+                        continue;
+                    }
+                    $checked = in_array($slug, $selectedSlugs, true) ? ' checked' : '';
+                    $html .= '<label class="inline-flex items-center gap-2 text-sm text-slate-300"><input type="checkbox" name="' . e($taxonomyKey) . '[]" value="' . e($slug) . '"' . $checked . '> ' . e($name) . '</label>';
+                }
+                $html .= '</div>';
+            }
+            $html .= '</div>';
+        }
+        $html .= '</div></div>';
 
         $html .= '<div class="grid gap-4 md:grid-cols-3">';
         $html .= '<div><label class="mb-1 block text-sm text-slate-300">Travel radius (km) *</label><input required type="number" min="0" name="gigtune_artist_travel_radius_km" value="' . e((string) ($meta['gigtune_artist_travel_radius_km'] ?? '0')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
@@ -945,6 +1333,36 @@ class GigTuneShortcodeService
         $html .= '<div><label class="mb-1 block text-sm text-slate-300">Bank account number</label><input name="gigtune_artist_bank_account_number" value="' . e((string) ($meta['gigtune_artist_bank_account_number'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
         $html .= '<div><label class="mb-1 block text-sm text-slate-300">Bank name</label><input name="gigtune_artist_bank_name" value="' . e((string) ($meta['gigtune_artist_bank_name'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
         $html .= '<div><label class="mb-1 block text-sm text-slate-300">Branch code</label><input name="gigtune_artist_branch_code" value="' . e($branchCode) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '</div>';
+
+        $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
+        $html .= '<h2 class="text-lg font-semibold text-white">Demo videos</h2>';
+        $html .= '<p class="text-sm text-slate-400 mt-1">You can upload demo videos or add links below.</p>';
+        $html .= '<p class="text-xs text-slate-300 mt-2">Optional: add up to 5 demo videos. Duration must be 30-120 seconds.</p>';
+        if ($demoVideos !== []) {
+            $html .= '<div class="mt-4 space-y-3">';
+            foreach ($demoVideos as $video) {
+                $videoUrl = trim((string) ($video['url'] ?? ''));
+                $videoRaw = trim((string) ($video['raw'] ?? $videoUrl));
+                $videoLabel = trim((string) ($video['label'] ?? $videoUrl));
+                if ($videoRaw === '') {
+                    continue;
+                }
+                $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">';
+                if ($videoUrl !== '') {
+                    $html .= '<a href="' . e($videoUrl) . '" target="_blank" rel="noopener" class="text-sm text-slate-300 break-all hover:text-white underline">' . e($videoLabel !== '' ? $videoLabel : $videoUrl) . '</a>';
+                } else {
+                    $html .= '<div class="text-sm text-slate-300 break-all">' . e($videoLabel !== '' ? $videoLabel : $videoRaw) . '</div>';
+                }
+                $html .= '<label class="inline-flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" name="gigtune_remove_demo[]" value="' . e($videoRaw) . '"> Remove</label>';
+                $html .= '</div>';
+            }
+            $html .= '</div>';
+        }
+        $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-4 mt-4 space-y-3">';
+        $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Upload demo videos</label><input type="file" name="gigtune_demo_videos[]" multiple accept="video/*" class="block w-full text-sm text-slate-200"></div>';
+        $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Or add demo link</label><input type="url" name="gigtune_demo_url" placeholder="https://..." class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '</div>';
         $html .= '</div>';
 
         $html .= '<div class="flex flex-wrap gap-2"><button type="submit" class="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Save profile</button><a class="rounded-md border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200" href="/artist-profile/?artist_id=' . (int) $profileId . '">Preview profile</a></div>';
@@ -1491,12 +1909,41 @@ class GigTuneShortcodeService
             $dob = trim((string) $request->input('gigtune_kyc_dob', ''));
             $country = trim((string) $request->input('gigtune_kyc_country', 'South Africa'));
             $mobile = trim((string) $request->input('gigtune_kyc_mobile', ''));
-            $address = trim((string) $request->input('gigtune_kyc_address', ''));
+            $addressStreet = trim((string) $request->input('gigtune_kyc_address_street', ''));
+            $addressSuburb = trim((string) $request->input('gigtune_kyc_address_suburb', ''));
+            $addressCity = trim((string) $request->input('gigtune_kyc_address_city', ''));
+            $addressProvince = trim((string) $request->input('gigtune_kyc_address_province', ''));
+            $addressPostalCode = trim((string) $request->input('gigtune_kyc_address_postal_code', ''));
+            $legacyAddress = trim((string) $request->input('gigtune_kyc_address', ''));
+            $address = trim(implode(', ', array_values(array_filter([
+                $addressStreet,
+                $addressSuburb,
+                $addressCity,
+                $addressProvince,
+                $addressPostalCode,
+                $country,
+            ], static fn ($value): bool => trim((string) $value) !== ''))));
+            if ($address === '' && $legacyAddress !== '') {
+                $address = $legacyAddress;
+            }
             $idDoc = $request->file('gigtune_kyc_id_document');
             $selfieDoc = $request->file('gigtune_kyc_selfie');
             $proofDoc = $request->file('gigtune_kyc_proof_of_address');
 
-            if ($legalName === '' || $idNumber === '' || $country === '' || $mobile === '' || $address === '' || $idDoc === null || !$idDoc->isValid()) {
+            if (
+                $legalName === '' ||
+                $idNumber === '' ||
+                $country === '' ||
+                $mobile === '' ||
+                $addressStreet === '' ||
+                $addressCity === '' ||
+                $addressProvince === '' ||
+                $addressPostalCode === '' ||
+                ($addressPostalCode !== '' && preg_match('/^\d{4}$/', $addressPostalCode) !== 1) ||
+                $address === '' ||
+                $idDoc === null ||
+                !$idDoc->isValid()
+            ) {
                 $error = 'Please complete all required fields and upload an ID document.';
             } else {
                 $submissionId = (int) $this->db()->table($this->posts())->insertGetId([
@@ -1571,6 +2018,12 @@ class GigTuneShortcodeService
                 $this->upsertPostMeta($submissionId, 'gigtune_kyc_country', $country);
                 $this->upsertPostMeta($submissionId, 'gigtune_kyc_mobile', $mobile);
                 $this->upsertPostMeta($submissionId, 'gigtune_kyc_address', $address);
+                $this->upsertPostMeta($submissionId, 'gigtune_kyc_address_street', $addressStreet);
+                $this->upsertPostMeta($submissionId, 'gigtune_kyc_address_suburb', $addressSuburb);
+                $this->upsertPostMeta($submissionId, 'gigtune_kyc_address_city', $addressCity);
+                $this->upsertPostMeta($submissionId, 'gigtune_kyc_address_province', $addressProvince);
+                $this->upsertPostMeta($submissionId, 'gigtune_kyc_address_postal_code', $addressPostalCode);
+                $this->upsertPostMeta($submissionId, 'gigtune_kyc_address_country', $country);
                 $this->upsertPostMeta($submissionId, 'gigtune_kyc_submitted_at', $submittedAt);
                 $this->upsertPostMeta($submissionId, 'gigtune_kyc_decision', 'pending');
                 $this->upsertPostMeta($submissionId, 'gigtune_kyc_documents', json_encode($docs, JSON_UNESCAPED_SLASHES));
@@ -1593,7 +2046,28 @@ class GigTuneShortcodeService
         } elseif ($error !== '') {
             $html .= '<div class="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">' . e($error) . '</div>';
         }
-        $html .= '<form method="post" enctype="multipart/form-data" class="mt-5 grid gap-4 md:grid-cols-2"><input type="hidden" name="gigtune_kyc_submit" value="1"><div class="md:col-span-2"><label class="mb-1 block text-sm text-slate-300">Legal full name</label><input name="gigtune_kyc_legal_name" required class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div><div><label class="mb-1 block text-sm text-slate-300">ID/Passport number</label><input name="gigtune_kyc_id_number" required class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div><div><label class="mb-1 block text-sm text-slate-300">Date of birth</label><input type="date" name="gigtune_kyc_dob" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div><div><label class="mb-1 block text-sm text-slate-300">Country</label><input name="gigtune_kyc_country" value="South Africa" required class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div><div><label class="mb-1 block text-sm text-slate-300">Mobile</label><input name="gigtune_kyc_mobile" required class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div><div class="md:col-span-2"><label class="mb-1 block text-sm text-slate-300">Address</label><textarea name="gigtune_kyc_address" rows="3" required class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></textarea></div><div><label class="mb-1 block text-sm text-slate-300">ID document *</label><input type="file" name="gigtune_kyc_id_document" accept="application/pdf,image/jpeg,image/png" required class="block w-full text-sm text-slate-200"></div><div><label class="mb-1 block text-sm text-slate-300">Selfie (optional)</label><input type="file" name="gigtune_kyc_selfie" accept="image/jpeg,image/png" class="block w-full text-sm text-slate-200"></div><div class="md:col-span-2"><label class="mb-1 block text-sm text-slate-300">Proof of address (optional)</label><input type="file" name="gigtune_kyc_proof_of_address" accept="application/pdf,image/jpeg,image/png" class="block w-full text-sm text-slate-200"></div><div class="md:col-span-2"><button type="submit" class="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500">Submit Identity Verification</button></div></form>';
+        $html .= '<form method="post" enctype="multipart/form-data" class="mt-5 grid gap-4 md:grid-cols-2">';
+        $html .= '<input type="hidden" name="gigtune_kyc_submit" value="1">';
+        $html .= '<div class="md:col-span-2"><label class="mb-1 block text-sm text-slate-300">Legal full name</label><input name="gigtune_kyc_legal_name" required class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">ID/Passport number</label><input name="gigtune_kyc_id_number" required class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Date of birth</label><input type="date" name="gigtune_kyc_dob" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Country</label><input name="gigtune_kyc_country" value="South Africa" required class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Mobile</label><input name="gigtune_kyc_mobile" required class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Street address</label><input name="gigtune_kyc_address_street" required class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Suburb</label><input name="gigtune_kyc_address_suburb" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Town/City</label><input name="gigtune_kyc_address_city" required class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Province</label><select name="gigtune_kyc_address_province" required class="gigtune-site-select w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"><option value="">Select province</option>';
+        foreach ($this->saProvinces() as $province) {
+            $html .= '<option value="' . e($province) . '">' . e($province) . '</option>';
+        }
+        $html .= '</select></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Postcode</label><input name="gigtune_kyc_address_postal_code" required pattern="\\d{4}" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div class="md:col-span-2"><label class="mb-1 block text-sm text-slate-300">Address summary</label><textarea name="gigtune_kyc_address" rows="2" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white" placeholder="Optional legacy address format"></textarea></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">ID document *</label><input type="file" name="gigtune_kyc_id_document" accept="application/pdf,image/jpeg,image/png" required class="block w-full text-sm text-slate-200"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Selfie (optional)</label><input type="file" name="gigtune_kyc_selfie" accept="image/jpeg,image/png" class="block w-full text-sm text-slate-200"></div>';
+        $html .= '<div class="md:col-span-2"><label class="mb-1 block text-sm text-slate-300">Proof of address (optional)</label><input type="file" name="gigtune_kyc_proof_of_address" accept="application/pdf,image/jpeg,image/png" class="block w-full text-sm text-slate-200"></div>';
+        $html .= '<div class="md:col-span-2"><button type="submit" class="inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500">Submit Identity Verification</button></div>';
+        $html .= '</form>';
         return $html . '</div>';
     }
 
@@ -2240,6 +2714,480 @@ class GigTuneShortcodeService
         return $out . '</div>';
     }
 
+    private function renderPsaFeed(array $a, ?array $u, array $ctx = []): string
+    {
+        $request = $this->req($ctx);
+        $uid = (int) ($u['id'] ?? 0);
+        $roles = is_array($u['roles'] ?? null) ? $u['roles'] : [];
+        $isAdmin = (bool) ($u['is_admin'] ?? false);
+        $isClient = $uid > 0 && (in_array('gigtune_client', $roles, true) || $isAdmin);
+        $isArtist = $uid > 0 && in_array('gigtune_artist', $roles, true);
+        $artistProfileId = $isArtist ? $this->latestUserMetaInt($uid, 'gigtune_artist_profile_id') : 0;
+
+        $clientRequirements = $isClient ? $this->missingRequirements($uid, 'client_can_request') : [];
+        $artistRequirements = $isArtist ? $this->missingRequirements($uid, 'artist_can_receive_requests') : [];
+        $canClientPost = $isClient && $clientRequirements === [];
+        $canArtistApply = $isArtist && $artistRequirements === [];
+
+        $statusMessage = '';
+        $errorMessage = '';
+
+        if ($request !== null && strtoupper((string) $request->method()) === 'POST') {
+            if ((string) $request->input('gigtune_psa_submit', '') === '1') {
+                $nonce = trim((string) $request->input('gigtune_psa_nonce', ''));
+                if (!$this->verifyWpNonce($nonce, 'gigtune_psa_action')) {
+                    $errorMessage = 'Security check failed.';
+                } elseif (!$canClientPost) {
+                    $errorMessage = 'Complete your account requirements before posting requests.';
+                } else {
+                    $title = trim((string) $request->input('gigtune_psa_title', ''));
+                    $description = trim((string) $request->input('gigtune_psa_description', ''));
+                    $startDate = trim((string) $request->input('gigtune_psa_start_date', ''));
+                    $endDate = trim((string) $request->input('gigtune_psa_end_date', ''));
+                    $durationWeeks = max(0, (int) $request->input('gigtune_psa_duration_weeks', 0));
+                    $budgetMin = max(0, (int) $request->input('gigtune_psa_budget_min', 0));
+                    $budgetMax = max(0, (int) $request->input('gigtune_psa_budget_max', 0));
+                    $locationProvince = trim((string) $request->input('gigtune_psa_location_province', ''));
+                    $locationCity = trim((string) $request->input('gigtune_psa_location_city', ''));
+                    $locationStreet = trim((string) $request->input('gigtune_psa_location_street', ''));
+                    $locationSuburb = trim((string) $request->input('gigtune_psa_location_suburb', ''));
+                    $locationPostalCode = trim((string) $request->input('gigtune_psa_location_postal_code', ''));
+                    $locationCountry = trim((string) $request->input('gigtune_psa_location_country', 'South Africa'));
+                    if ($locationCountry === '') {
+                        $locationCountry = 'South Africa';
+                    }
+                    $locationText = trim((string) $request->input('gigtune_psa_location_text', ''));
+                    if ($locationText === '') {
+                        $locationText = implode(', ', array_values(array_filter([
+                            $locationStreet,
+                            $locationSuburb,
+                            $locationCity,
+                            $locationProvince,
+                            $locationPostalCode,
+                            $locationCountry,
+                        ], static fn ($value): bool => trim((string) $value) !== '')));
+                    }
+
+                    if ($title === '' || $startDate === '') {
+                        $errorMessage = 'Title and start date are required.';
+                    } elseif ($locationStreet === '' || $locationCity === '' || $locationProvince === '' || $locationPostalCode === '' || $locationCountry === '') {
+                        $errorMessage = 'Complete address fields are required.';
+                    } elseif ($locationPostalCode !== '' && preg_match('/^\d{4}$/', $locationPostalCode) !== 1) {
+                        $errorMessage = 'Postal code must be a 4-digit number.';
+                    } elseif ($endDate !== '' && strtotime($endDate) !== false && strtotime($startDate) !== false && strtotime($endDate) < strtotime($startDate)) {
+                        $errorMessage = 'End date cannot be before start date.';
+                    } else {
+                        if ($budgetMax > 0 && $budgetMin > $budgetMax) {
+                            $tmp = $budgetMin;
+                            $budgetMin = $budgetMax;
+                            $budgetMax = $tmp;
+                        }
+
+                        $psaId = (int) $this->db()->table($this->posts())->insertGetId([
+                            'post_author' => $uid,
+                            'post_date' => now()->format('Y-m-d H:i:s'),
+                            'post_date_gmt' => now('UTC')->format('Y-m-d H:i:s'),
+                            'post_content' => $description,
+                            'post_title' => $title,
+                            'post_status' => 'publish',
+                            'comment_status' => 'closed',
+                            'ping_status' => 'closed',
+                            'post_name' => 'psa-' . time() . '-' . $uid,
+                            'post_modified' => now()->format('Y-m-d H:i:s'),
+                            'post_modified_gmt' => now('UTC')->format('Y-m-d H:i:s'),
+                            'post_type' => 'gigtune_psa',
+                        ]);
+
+                        if ($psaId > 0) {
+                            $this->upsertPostMeta($psaId, 'gigtune_psa_status', 'open');
+                            $this->upsertPostMeta($psaId, 'gigtune_psa_client_user_id', (string) $uid);
+                            $this->upsertPostMeta($psaId, 'gigtune_psa_created_at', (string) now()->timestamp);
+                            $this->upsertPostMeta($psaId, 'gigtune_psa_start_date', $startDate);
+                            $this->upsertPostMeta($psaId, 'gigtune_psa_end_date', $endDate);
+                            $this->upsertPostMeta($psaId, 'gigtune_psa_duration_weeks', (string) $durationWeeks);
+                            $this->upsertPostMeta($psaId, 'gigtune_psa_budget_min', (string) $budgetMin);
+                            $this->upsertPostMeta($psaId, 'gigtune_psa_budget_max', (string) $budgetMax);
+                            $this->upsertPostMeta($psaId, 'gigtune_psa_location_province', $locationProvince);
+                            $this->upsertPostMeta($psaId, 'gigtune_psa_location_city', $locationCity);
+                            $this->upsertPostMeta($psaId, 'gigtune_psa_location_street', $locationStreet);
+                            $this->upsertPostMeta($psaId, 'gigtune_psa_location_suburb', $locationSuburb);
+                            $this->upsertPostMeta($psaId, 'gigtune_psa_location_postal_code', $locationPostalCode);
+                            $this->upsertPostMeta($psaId, 'gigtune_psa_location_country', $locationCountry);
+                            $this->upsertPostMeta($psaId, 'gigtune_psa_location_text', $locationText);
+                            $this->upsertPostMeta($psaId, 'gigtune_post_applications', serialize([]));
+
+                            $selectedTerms = $request->input('gigtune_psa_terms', []);
+                            $taxonomies = array_keys($this->getFilterOptions());
+                            foreach ($taxonomies as $taxonomy) {
+                                $slugs = [];
+                                $raw = is_array($selectedTerms) ? ($selectedTerms[$taxonomy] ?? []) : [];
+                                if (is_array($raw)) {
+                                    foreach ($raw as $slug) {
+                                        $slug = trim((string) $slug);
+                                        if ($slug !== '') {
+                                            $slugs[] = $slug;
+                                        }
+                                    }
+                                }
+                                $this->syncPostTermsBySlugs($psaId, $taxonomy, $slugs);
+                            }
+
+                            $statusMessage = 'Post updated successfully.';
+                        } else {
+                            $errorMessage = 'Unable to create post.';
+                        }
+                    }
+                }
+            } elseif ((string) $request->input('gigtune_apply_post_submit', '') === '1') {
+                $nonce = trim((string) $request->input('gigtune_psa_apply_nonce', ''));
+                $psaId = (int) $request->input('gigtune_psa_id', 0);
+                if (!$this->verifyWpNonce($nonce, 'gigtune_psa_apply_action')) {
+                    $errorMessage = 'Security check failed.';
+                } elseif (!$canArtistApply) {
+                    $errorMessage = 'Complete your account requirements before applying.';
+                } elseif ($psaId <= 0 || $artistProfileId <= 0) {
+                    $errorMessage = 'Invalid post.';
+                } else {
+                    $status = strtolower(trim($this->getLatestPostMeta($psaId, 'gigtune_psa_status')));
+                    if ($status === '') {
+                        $status = 'open';
+                    }
+                    if ($status !== 'open') {
+                        $errorMessage = 'Post is closed.';
+                    } else {
+                        $applications = $this->psaApplications($psaId);
+                        if ($this->psaArtistHasApplied($applications, $artistProfileId)) {
+                            $statusMessage = 'You already applied to this post.';
+                        } else {
+                            $applications[] = [
+                                'artist_id' => $artistProfileId,
+                                'applied_at' => now()->timestamp,
+                                'status' => 'APPLIED',
+                            ];
+                            $this->savePsaApplications($psaId, $applications);
+                            $postTitle = trim((string) $this->db()->table($this->posts())->where('ID', $psaId)->value('post_title'));
+                            $clientUserId = (int) $this->getLatestPostMeta($psaId, 'gigtune_psa_client_user_id');
+                            if ($clientUserId > 0) {
+                                $this->createNotification(
+                                    $clientUserId,
+                                    'booking',
+                                    $this->profileNameById($artistProfileId) . ' applied to your open post "' . ($postTitle !== '' ? $postTitle : ('Post #' . $psaId)) . '". Review applicants and book directly from your dashboard.',
+                                    ['object_type' => 'psa', 'object_id' => $psaId, 'artist_profile_id' => $artistProfileId]
+                                );
+                            }
+                            $this->createNotification(
+                                $uid,
+                                'booking',
+                                'Application submitted for "' . ($postTitle !== '' ? $postTitle : ('Post #' . $psaId)) . '". The client has been notified and can book you from applicants.',
+                                ['object_type' => 'psa', 'object_id' => $psaId, 'artist_profile_id' => $artistProfileId]
+                            );
+                            $statusMessage = 'Application submitted.';
+                        }
+                    }
+                }
+            } elseif ((string) $request->input('gigtune_psa_close_submit', '') === '1') {
+                $nonce = trim((string) $request->input('gigtune_psa_close_nonce', ''));
+                $psaId = (int) $request->input('gigtune_psa_id', 0);
+                if (!$this->verifyWpNonce($nonce, 'gigtune_psa_close_action')) {
+                    $errorMessage = 'Security check failed.';
+                } elseif (!$isClient || $psaId <= 0) {
+                    $errorMessage = 'Invalid post.';
+                } else {
+                    $ownerId = (int) $this->getLatestPostMeta($psaId, 'gigtune_psa_client_user_id');
+                    if (!$isAdmin && $ownerId !== $uid) {
+                        $errorMessage = 'Not allowed.';
+                    } else {
+                        $this->upsertPostMeta($psaId, 'gigtune_psa_status', 'closed');
+                        $statusMessage = 'Post updated successfully.';
+                    }
+                }
+            }
+        }
+
+        $html = '<div class="space-y-6">';
+        if ($statusMessage !== '') {
+            $html .= '<div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4"><p class="text-emerald-200 font-semibold">' . e($statusMessage) . '</p></div>';
+        }
+        if ($errorMessage !== '') {
+            $html .= '<div class="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4"><p class="text-rose-200 font-semibold">Post update failed.</p><p class="text-rose-200/80 text-sm mt-1">' . e($errorMessage) . '</p></div>';
+        }
+        if ($isClient && !$canClientPost) {
+            $first = reset($clientRequirements);
+            $msg = is_array($first) ? (string) ($first['message'] ?? 'Complete your account requirements before posting requests.') : 'Complete your account requirements before posting requests.';
+            $html .= '<div class="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4"><p class="text-amber-200 font-semibold">' . e($msg) . '</p></div>';
+        }
+        if ($isArtist && !$canArtistApply) {
+            $first = reset($artistRequirements);
+            $msg = is_array($first) ? (string) ($first['message'] ?? 'Complete your account requirements before applying.') : 'Complete your account requirements before applying.';
+            $html .= '<div class="rounded-2xl border border-amber-500/30 bg-amber-500/10 p-4"><p class="text-amber-200 font-semibold">' . e($msg) . '</p></div>';
+        }
+
+        if ($isClient) {
+            $taxOptions = $this->getFilterOptions();
+            $provinces = $this->saProvinces();
+            $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
+            $html .= '<h2 class="text-lg font-semibold text-white">Create a client post</h2>';
+            $html .= '<p class="text-sm text-slate-300 mt-2">Share what kind of artist you are looking for.</p>';
+            if (!$canClientPost) {
+                $html .= '<p class="mt-4 text-sm text-amber-200">Complete verification, policies, and KYC before publishing requests.</p>';
+            } else {
+                $html .= '<form method="post" class="mt-6 space-y-4">';
+                $html .= '<input type="hidden" name="gigtune_psa_submit" value="1">';
+                $html .= '<input type="hidden" name="gigtune_psa_nonce" value="' . e($this->createWpNonce('gigtune_psa_action')) . '">';
+                $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Title</label><input type="text" name="gigtune_psa_title" required class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
+                $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Description</label><textarea name="gigtune_psa_description" rows="4" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></textarea></div>';
+                $html .= '<div class="grid gap-4 md:grid-cols-3">';
+                $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Start date</label><input type="date" name="gigtune_psa_start_date" required class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
+                $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">End date</label><input type="date" name="gigtune_psa_end_date" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
+                $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Duration (weeks)</label><input type="number" min="0" name="gigtune_psa_duration_weeks" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
+                $html .= '</div>';
+                $html .= '<div class="grid gap-4 md:grid-cols-2">';
+                $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Budget min (ZAR)</label><input type="number" min="0" name="gigtune_psa_budget_min" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
+                $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Budget max (ZAR)</label><input type="number" min="0" name="gigtune_psa_budget_max" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
+                $html .= '</div>';
+                $html .= '<div class="grid gap-4 md:grid-cols-3">';
+                $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Street address</label><input type="text" name="gigtune_psa_location_street" required class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
+                $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Suburb</label><input type="text" name="gigtune_psa_location_suburb" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
+                $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Town/City</label><input type="text" name="gigtune_psa_location_city" required class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
+                $html .= '</div>';
+                $html .= '<div class="grid gap-4 md:grid-cols-3">';
+                $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Province</label><select name="gigtune_psa_location_province" required class="gigtune-site-select w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"><option value="">Select province</option>';
+                foreach ($provinces as $province) {
+                    $html .= '<option value="' . e($province) . '">' . e($province) . '</option>';
+                }
+                $html .= '</select></div>';
+                $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Postcode</label><input type="text" name="gigtune_psa_location_postal_code" required pattern="\\d{4}" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
+                $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Country</label><input type="text" name="gigtune_psa_location_country" value="South Africa" required class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
+                $html .= '</div>';
+                $html .= '<div class="grid gap-4 md:grid-cols-1">';
+                $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Location text</label><input type="text" name="gigtune_psa_location_text" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
+                $html .= '</div>';
+                foreach ($taxOptions as $taxonomy => $terms) {
+                    if (!is_array($terms) || $terms === []) {
+                        continue;
+                    }
+                    $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">' . e(ucwords(str_replace('_', ' ', $taxonomy))) . '</label><div class="flex flex-wrap gap-2">';
+                    foreach ($terms as $term) {
+                        $slug = (string) ($term['slug'] ?? '');
+                        $name = (string) ($term['name'] ?? $slug);
+                        if ($slug === '') {
+                            continue;
+                        }
+                        $html .= '<label class="inline-flex items-center gap-2 text-xs text-slate-300"><input type="checkbox" name="gigtune_psa_terms[' . e($taxonomy) . '][]" value="' . e($slug) . '">' . e($name) . '</label>';
+                    }
+                    $html .= '</div></div>';
+                }
+                $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-xl bg-indigo-600 hover:bg-indigo-500 px-5 py-3 text-white font-semibold">Publish post</button>';
+                $html .= '</form>';
+            }
+            $html .= '</div>';
+        }
+
+        $posts = $this->fetchPsaFeedPosts($isClient ? $uid : null, $isClient ? null : 'open');
+        $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
+        $html .= '<h2 class="text-lg font-semibold text-white">' . e($isClient ? 'Your client posts' : 'Open client posts') . '</h2>';
+        $html .= '<div class="mt-4 space-y-4">';
+        if ($posts === []) {
+            $html .= '<p class="text-sm text-slate-300">No posts found.</p>';
+        } else {
+            foreach ($posts as $post) {
+                $psaId = (int) ($post['id'] ?? 0);
+                $status = strtolower(trim((string) ($post['status'] ?? 'open')));
+                $applications = $this->psaApplications($psaId);
+                $alreadyApplied = $isArtist && $artistProfileId > 0 && $this->psaArtistHasApplied($applications, $artistProfileId);
+
+                $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-4">';
+                $html .= '<div class="text-white font-semibold">' . e((string) ($post['title'] ?? 'Client post')) . '</div>';
+                if (trim((string) ($post['content'] ?? '')) !== '') {
+                    $html .= '<div class="text-sm text-slate-300 mt-2">' . e((string) $post['content']) . '</div>';
+                }
+                $html .= '<div class="text-xs text-slate-400 mt-2">Status: <span class="text-slate-200">' . e($this->toSentenceCase($status)) . '</span></div>';
+                $locationText = trim((string) ($post['location_text'] ?? ''));
+                if ($locationText !== '') {
+                    $html .= '<div class="text-xs text-slate-400">Location: <span class="text-slate-200">' . e($locationText) . '</span></div>';
+                }
+                $budgetMin = (int) ($post['budget_min'] ?? 0);
+                $budgetMax = (int) ($post['budget_max'] ?? 0);
+                if ($budgetMin > 0 || $budgetMax > 0) {
+                    $html .= '<div class="text-xs text-slate-400">Budget: <span class="text-slate-200">ZAR ' . e(number_format($budgetMin)) . ($budgetMax > 0 ? (' - ' . e(number_format($budgetMax))) : '') . '</span></div>';
+                }
+
+                if ($isClient) {
+                    $html .= '<div class="mt-3 rounded-lg border border-white/10 bg-white/5 p-3"><div class="text-xs font-semibold text-slate-200">Applicants</div>';
+                    if ($applications === []) {
+                        $html .= '<p class="mt-1 text-xs text-slate-400">No applications yet.</p>';
+                    } else {
+                        $html .= '<div class="mt-2 space-y-2">';
+                        foreach ($applications as $application) {
+                            $artistId = (int) ($application['artist_id'] ?? 0);
+                            if ($artistId <= 0) {
+                                continue;
+                            }
+                            $artistPost = $this->db()->table($this->posts())->where('ID', $artistId)->where('post_type', 'artist_profile')->first(['post_title']);
+                            $artistName = $artistPost !== null ? trim((string) ($artistPost->post_title ?? '')) : '';
+                            if ($artistName === '') {
+                                $artistName = 'Artist #' . $artistId;
+                            }
+                            $bookUrl = '/book-an-artist/?artist_id=' . $artistId . '&post_ref=' . $psaId . '&psa_id=' . $psaId;
+                            $html .= '<div class="flex items-center justify-between gap-3 rounded-lg border border-white/10 bg-black/20 px-3 py-2"><div class="text-xs text-slate-200">' . e($artistName) . '</div><a href="' . e($bookUrl) . '" class="inline-flex items-center justify-center rounded-lg px-3 py-1 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500">Book this Artist</a></div>';
+                        }
+                        $html .= '</div>';
+                    }
+                    $html .= '</div>';
+                }
+
+                if ($isClient && $status === 'open') {
+                    $html .= '<form method="post" class="mt-3"><input type="hidden" name="gigtune_psa_id" value="' . $psaId . '"><input type="hidden" name="gigtune_psa_close_nonce" value="' . e($this->createWpNonce('gigtune_psa_close_action')) . '"><button type="submit" name="gigtune_psa_close_submit" value="1" class="text-xs text-rose-300 hover:text-rose-200">Close post</button></form>';
+                }
+                if ($canArtistApply && $status === 'open') {
+                    $html .= '<form method="post" class="mt-3"><input type="hidden" name="gigtune_psa_id" value="' . $psaId . '"><input type="hidden" name="gigtune_psa_apply_nonce" value="' . e($this->createWpNonce('gigtune_psa_apply_action')) . '">';
+                    if ($alreadyApplied) {
+                        $html .= '<button type="submit" disabled class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-xs font-semibold text-slate-300 bg-white/10 opacity-70 cursor-not-allowed">Already applied</button>';
+                    } else {
+                        $html .= '<button type="submit" name="gigtune_apply_post_submit" value="1" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-xs font-semibold text-white bg-indigo-600 hover:bg-indigo-500">Apply to this Post</button>';
+                    }
+                    $html .= '</form>';
+                }
+                $html .= '</div>';
+            }
+        }
+        $html .= '</div></div>';
+        return $html . '</div>';
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function fetchPsaFeedPosts(?int $clientUserId = null, ?string $status = null): array
+    {
+        $query = $this->db()->table($this->posts())
+            ->where('post_type', 'gigtune_psa')
+            ->where('post_status', 'publish')
+            ->orderByDesc('ID');
+
+        if (($clientUserId ?? 0) > 0) {
+            $query->whereExists(function ($q) use ($clientUserId): void {
+                $q->selectRaw('1')
+                    ->from($this->pm() . ' as pm')
+                    ->whereColumn('pm.post_id', $this->posts() . '.ID')
+                    ->where('pm.meta_key', 'gigtune_psa_client_user_id')
+                    ->where('pm.meta_value', (string) $clientUserId);
+            });
+        }
+
+        $rows = $query->limit(120)->get(['ID', 'post_title', 'post_content']);
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($rows as $row) {
+            $ids[] = (int) $row->ID;
+        }
+        $meta = $this->postMetaMap($ids, [
+            'gigtune_psa_status',
+            'gigtune_psa_budget_min',
+            'gigtune_psa_budget_max',
+            'gigtune_psa_location_text',
+            'gigtune_psa_location_street',
+            'gigtune_psa_location_suburb',
+            'gigtune_psa_location_province',
+            'gigtune_psa_location_city',
+            'gigtune_psa_location_postal_code',
+            'gigtune_psa_location_country',
+        ]);
+
+        $items = [];
+        foreach ($rows as $row) {
+            $id = (int) $row->ID;
+            $m = $meta[$id] ?? [];
+            $rowStatus = strtolower(trim((string) ($m['gigtune_psa_status'] ?? 'open')));
+            if ($status !== null && $status !== '' && $rowStatus !== strtolower($status)) {
+                continue;
+            }
+            $items[] = [
+                'id' => $id,
+                'title' => (string) ($row->post_title ?? ''),
+                'content' => (string) ($row->post_content ?? ''),
+                'status' => $rowStatus === '' ? 'open' : $rowStatus,
+                'budget_min' => (int) ($m['gigtune_psa_budget_min'] ?? 0),
+                'budget_max' => (int) ($m['gigtune_psa_budget_max'] ?? 0),
+                'location_text' => trim((string) ($m['gigtune_psa_location_text'] ?? '')) !== ''
+                    ? trim((string) ($m['gigtune_psa_location_text'] ?? ''))
+                    : implode(', ', array_values(array_filter([
+                        trim((string) ($m['gigtune_psa_location_street'] ?? '')),
+                        trim((string) ($m['gigtune_psa_location_suburb'] ?? '')),
+                        trim((string) ($m['gigtune_psa_location_city'] ?? '')),
+                        trim((string) ($m['gigtune_psa_location_province'] ?? '')),
+                        trim((string) ($m['gigtune_psa_location_postal_code'] ?? '')),
+                        trim((string) ($m['gigtune_psa_location_country'] ?? '')),
+                    ], static fn ($value): bool => $value !== ''))),
+                'location_province' => trim((string) ($m['gigtune_psa_location_province'] ?? '')),
+                'location_city' => trim((string) ($m['gigtune_psa_location_city'] ?? '')),
+            ];
+        }
+        return $items;
+    }
+
+    /** @return array<int,array{artist_id:int,applied_at:int,status:string}> */
+    private function psaApplications(int $psaId): array
+    {
+        $raw = $this->maybe($this->getLatestPostMeta($psaId, 'gigtune_post_applications'));
+        if (!is_array($raw) || $raw === []) {
+            return [];
+        }
+        $out = [];
+        foreach ($raw as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $artistId = (int) ($row['artist_id'] ?? 0);
+            if ($artistId <= 0 || isset($out[$artistId])) {
+                continue;
+            }
+            $status = strtoupper(trim((string) ($row['status'] ?? 'APPLIED')));
+            if ($status === '') {
+                $status = 'APPLIED';
+            }
+            $out[$artistId] = [
+                'artist_id' => $artistId,
+                'applied_at' => max(0, (int) ($row['applied_at'] ?? 0)),
+                'status' => $status,
+            ];
+        }
+        return array_values($out);
+    }
+
+    /** @param array<int,array{artist_id:int,applied_at:int,status:string}> $applications */
+    private function savePsaApplications(int $psaId, array $applications): void
+    {
+        $clean = [];
+        foreach ($applications as $row) {
+            if (!is_array($row)) {
+                continue;
+            }
+            $artistId = (int) ($row['artist_id'] ?? 0);
+            if ($artistId <= 0 || isset($clean[$artistId])) {
+                continue;
+            }
+            $clean[$artistId] = [
+                'artist_id' => $artistId,
+                'applied_at' => max(0, (int) ($row['applied_at'] ?? now()->timestamp)),
+                'status' => strtoupper(trim((string) ($row['status'] ?? 'APPLIED'))) ?: 'APPLIED',
+            ];
+        }
+        $this->upsertPostMeta($psaId, 'gigtune_post_applications', serialize(array_values($clean)));
+    }
+
+    /** @param array<int,array{artist_id:int,applied_at:int,status:string}> $applications */
+    private function psaArtistHasApplied(array $applications, int $artistProfileId): bool
+    {
+        foreach ($applications as $row) {
+            if ((int) ($row['artist_id'] ?? 0) === $artistProfileId) {
+                return true;
+            }
+        }
+        return false;
+    }
+
     /** @return array<string,string> */
     private function atts(string $raw): array
     {
@@ -2278,7 +3226,7 @@ class GigTuneShortcodeService
         return array_values(array_unique($out));
     }
 
-    /** @return array<int,array{title:string,url:string,type:string}> */
+    /** @return array<int,array{title:string,url:string,type:string,raw:string,label:string}> */
     private function demoVideos(string $raw): array
     {
         $v = $this->maybe($raw);
@@ -2288,12 +3236,14 @@ class GigTuneShortcodeService
         $out = [];
         foreach ($v as $i) {
             if (is_int($i) || ctype_digit((string) $i)) {
+                $id = (int) $i;
                 $u = $this->attachmentUrl((int) $i);
                 if ($u !== '') {
-                    $out[] = ['title' => 'Demo Video', 'url' => $u, 'type' => 'upload'];
+                    $out[] = ['title' => 'Demo Video', 'url' => $u, 'type' => 'upload', 'raw' => (string) $id, 'label' => $u];
                 }
             } elseif (is_string($i) && trim($i) !== '') {
-                $out[] = ['title' => 'Demo Video', 'url' => trim($i), 'type' => 'link'];
+                $url = trim($i);
+                $out[] = ['title' => 'Demo Video', 'url' => $url, 'type' => 'link', 'raw' => $url, 'label' => $url];
             }
         }
         return $out;
@@ -2336,6 +3286,302 @@ class GigTuneShortcodeService
         $value = preg_replace('/\bkyc\b/i', 'KYC', $value) ?? $value;
         $value = preg_replace('/\bpsa\b/i', 'PSA', $value) ?? $value;
         return $value;
+    }
+
+    /** @return array<string,array<int,string>> */
+    private function postTermSlugs(int $postId, array $taxonomies): array
+    {
+        if ($postId <= 0 || $taxonomies === []) {
+            return [];
+        }
+
+        $cleanTaxonomies = [];
+        foreach ($taxonomies as $taxonomy) {
+            $taxonomy = trim((string) $taxonomy);
+            if ($taxonomy !== '') {
+                $cleanTaxonomies[] = $taxonomy;
+            }
+        }
+        if ($cleanTaxonomies === []) {
+            return [];
+        }
+
+        $rows = $this->db()->table($this->tr() . ' as tr')
+            ->join($this->tt() . ' as tt', 'tt.term_taxonomy_id', '=', 'tr.term_taxonomy_id')
+            ->join($this->terms() . ' as t', 't.term_id', '=', 'tt.term_id')
+            ->where('tr.object_id', $postId)
+            ->whereIn('tt.taxonomy', $cleanTaxonomies)
+            ->get(['tt.taxonomy', 't.slug']);
+
+        $out = [];
+        foreach ($rows as $row) {
+            $taxonomy = trim((string) ($row->taxonomy ?? ''));
+            $slug = trim((string) ($row->slug ?? ''));
+            if ($taxonomy === '' || $slug === '') {
+                continue;
+            }
+            if (!isset($out[$taxonomy])) {
+                $out[$taxonomy] = [];
+            }
+            if (!in_array($slug, $out[$taxonomy], true)) {
+                $out[$taxonomy][] = $slug;
+            }
+        }
+
+        return $out;
+    }
+
+    /** @param array<int,string> $slugs */
+    private function syncPostTermsBySlugs(int $postId, string $taxonomy, array $slugs): void
+    {
+        $postId = abs($postId);
+        $taxonomy = trim($taxonomy);
+        if ($postId <= 0 || $taxonomy === '') {
+            return;
+        }
+
+        $cleanSlugs = [];
+        foreach ($slugs as $slug) {
+            $slug = strtolower(trim((string) $slug));
+            $slug = preg_replace('/[^a-z0-9_-]+/', '-', $slug) ?? '';
+            $slug = trim($slug, '-');
+            if ($slug !== '') {
+                $cleanSlugs[$slug] = $slug;
+            }
+        }
+        $cleanSlugs = array_values($cleanSlugs);
+
+        $existing = $this->db()->table($this->tr() . ' as tr')
+            ->join($this->tt() . ' as tt', 'tt.term_taxonomy_id', '=', 'tr.term_taxonomy_id')
+            ->where('tr.object_id', $postId)
+            ->where('tt.taxonomy', $taxonomy)
+            ->pluck('tr.term_taxonomy_id')
+            ->map(static fn ($id): int => (int) $id)
+            ->values()
+            ->all();
+
+        $existingSet = array_fill_keys($existing, true);
+        $desiredIds = [];
+        if ($cleanSlugs !== []) {
+            $rows = $this->db()->table($this->tt() . ' as tt')
+                ->join($this->terms() . ' as t', 't.term_id', '=', 'tt.term_id')
+                ->where('tt.taxonomy', $taxonomy)
+                ->whereIn('t.slug', $cleanSlugs)
+                ->get(['tt.term_taxonomy_id', 't.slug']);
+            $existingBySlug = [];
+            foreach ($rows as $row) {
+                $id = (int) ($row->term_taxonomy_id ?? 0);
+                $slug = strtolower(trim((string) ($row->slug ?? '')));
+                if ($id > 0) {
+                    $desiredIds[$id] = $id;
+                    if ($slug !== '') {
+                        $existingBySlug[$slug] = $id;
+                    }
+                }
+            }
+
+            foreach ($cleanSlugs as $slug) {
+                if (isset($existingBySlug[$slug])) {
+                    continue;
+                }
+                $createdId = $this->ensureTaxonomyTermBySlug($taxonomy, $slug);
+                if ($createdId > 0) {
+                    $desiredIds[$createdId] = $createdId;
+                }
+            }
+        }
+        $desiredIds = array_values($desiredIds);
+        $desiredSet = array_fill_keys($desiredIds, true);
+
+        $toDelete = [];
+        foreach ($existing as $id) {
+            if (!isset($desiredSet[$id])) {
+                $toDelete[] = $id;
+            }
+        }
+        if ($toDelete !== []) {
+            $this->db()->table($this->tr())
+                ->where('object_id', $postId)
+                ->whereIn('term_taxonomy_id', $toDelete)
+                ->delete();
+        }
+
+        foreach ($desiredIds as $termTaxonomyId) {
+            if (isset($existingSet[$termTaxonomyId])) {
+                continue;
+            }
+            $this->db()->table($this->tr())->insert([
+                'object_id' => $postId,
+                'term_taxonomy_id' => $termTaxonomyId,
+                'term_order' => 0,
+            ]);
+        }
+
+        $touchIds = array_values(array_unique(array_merge($existing, $desiredIds)));
+        foreach ($touchIds as $termTaxonomyId) {
+            $count = (int) $this->db()->table($this->tr())
+                ->where('term_taxonomy_id', $termTaxonomyId)
+                ->count('object_id');
+            $this->db()->table($this->tt())
+                ->where('term_taxonomy_id', $termTaxonomyId)
+                ->update(['count' => $count]);
+        }
+    }
+
+    private function ensureTaxonomyTermBySlug(string $taxonomy, string $slug): int
+    {
+        $taxonomy = trim($taxonomy);
+        $slug = strtolower(trim($slug));
+        if ($taxonomy === '' || $slug === '') {
+            return 0;
+        }
+
+        $existing = $this->db()->table($this->tt() . ' as tt')
+            ->join($this->terms() . ' as t', 't.term_id', '=', 'tt.term_id')
+            ->where('tt.taxonomy', $taxonomy)
+            ->where('t.slug', $slug)
+            ->first(['tt.term_taxonomy_id']);
+        if ($existing !== null) {
+            return (int) ($existing->term_taxonomy_id ?? 0);
+        }
+
+        $termId = (int) $this->db()->table($this->terms())
+            ->where('slug', $slug)
+            ->value('term_id');
+        if ($termId <= 0) {
+            $termId = (int) $this->db()->table($this->terms())->insertGetId([
+                'name' => $this->taxonomyNameFromSlug($slug),
+                'slug' => $slug,
+                'term_group' => 0,
+            ]);
+        }
+        if ($termId <= 0) {
+            return 0;
+        }
+
+        $taxonomyId = (int) $this->db()->table($this->tt())
+            ->where('term_id', $termId)
+            ->where('taxonomy', $taxonomy)
+            ->value('term_taxonomy_id');
+        if ($taxonomyId > 0) {
+            return $taxonomyId;
+        }
+
+        return (int) $this->db()->table($this->tt())->insertGetId([
+            'term_id' => $termId,
+            'taxonomy' => $taxonomy,
+            'description' => '',
+            'parent' => 0,
+            'count' => 0,
+        ]);
+    }
+
+    private function taxonomyNameFromSlug(string $slug): string
+    {
+        $label = trim((string) preg_replace('/[-_]+/', ' ', $slug));
+        if ($label === '') {
+            return $slug;
+        }
+        return ucwords($label);
+    }
+
+    private function saveUploadedAttachment(mixed $file, int $authorId, int $parentPostId, string $titlePrefix): int
+    {
+        if (!($file instanceof UploadedFile) || !$file->isValid()) {
+            return 0;
+        }
+
+        $uploadsRoot = public_path('wp-content/uploads');
+        $subdir = date('Y/m');
+        $targetDir = $uploadsRoot . DIRECTORY_SEPARATOR . str_replace('/', DIRECTORY_SEPARATOR, $subdir);
+        if (!is_dir($targetDir) && !@mkdir($targetDir, 0775, true) && !is_dir($targetDir)) {
+            return 0;
+        }
+
+        $originalName = (string) $file->getClientOriginalName();
+        $base = pathinfo($originalName, PATHINFO_FILENAME);
+        $base = trim((string) preg_replace('/[^a-zA-Z0-9_-]+/', '-', $base), '-');
+        if ($base === '') {
+            $base = strtolower(trim((string) preg_replace('/[^a-zA-Z0-9_-]+/', '-', $titlePrefix), '-'));
+        }
+        if ($base === '') {
+            $base = 'upload';
+        }
+
+        $extension = strtolower(trim((string) $file->getClientOriginalExtension()));
+        if ($extension === '') {
+            $guessed = (string) $file->guessExtension();
+            $extension = strtolower(trim($guessed));
+        }
+        if ($extension === '') {
+            $extension = 'bin';
+        }
+
+        $filename = $base . '-' . date('YmdHis') . '-' . random_int(1000, 9999) . '.' . $extension;
+        $moved = $file->move($targetDir, $filename);
+        $absolutePath = $moved->getPathname();
+        if (!is_file($absolutePath)) {
+            return 0;
+        }
+
+        $relativePath = $subdir . '/' . $filename;
+        $mime = (string) ($file->getClientMimeType() ?: $file->getMimeType() ?: 'application/octet-stream');
+        $now = now();
+        $nowUtc = now('UTC');
+        $postTitle = trim($titlePrefix . ' ' . pathinfo($filename, PATHINFO_FILENAME));
+
+        $attachmentId = (int) $this->db()->table($this->posts())->insertGetId([
+            'post_author' => max(0, $authorId),
+            'post_date' => $now->format('Y-m-d H:i:s'),
+            'post_date_gmt' => $nowUtc->format('Y-m-d H:i:s'),
+            'post_content' => '',
+            'post_title' => $postTitle !== '' ? $postTitle : 'Attachment',
+            'post_excerpt' => '',
+            'post_status' => 'inherit',
+            'comment_status' => 'closed',
+            'ping_status' => 'closed',
+            'post_password' => '',
+            'post_name' => trim((string) preg_replace('/[^a-z0-9_-]+/i', '-', strtolower($postTitle)), '-'),
+            'to_ping' => '',
+            'pinged' => '',
+            'post_modified' => $now->format('Y-m-d H:i:s'),
+            'post_modified_gmt' => $nowUtc->format('Y-m-d H:i:s'),
+            'post_content_filtered' => '',
+            'post_parent' => max(0, $parentPostId),
+            'guid' => rtrim((string) config('app.url', ''), '/') . '/wp-content/uploads/' . $relativePath,
+            'menu_order' => 0,
+            'post_type' => 'attachment',
+            'post_mime_type' => $mime,
+            'comment_count' => 0,
+        ]);
+        if ($attachmentId <= 0) {
+            @unlink($absolutePath);
+            return 0;
+        }
+
+        $this->upsertPostMeta($attachmentId, '_wp_attached_file', str_replace('\\', '/', $relativePath));
+        $this->upsertPostMeta($attachmentId, '_wp_attachment_metadata', '');
+        return $attachmentId;
+    }
+
+    private function deleteAttachment(int $attachmentId): void
+    {
+        $attachmentId = abs($attachmentId);
+        if ($attachmentId <= 0) {
+            return;
+        }
+
+        $relative = $this->getLatestPostMeta($attachmentId, '_wp_attached_file');
+        if ($relative !== '') {
+            $fullPath = public_path('wp-content/uploads/' . ltrim(str_replace('\\', '/', $relative), '/'));
+            if (is_file($fullPath)) {
+                @unlink($fullPath);
+            }
+        }
+
+        $this->db()->table($this->pm())->where('post_id', $attachmentId)->delete();
+        $this->db()->table($this->tr())->where('object_id', $attachmentId)->delete();
+        $this->db()->table($this->posts())->where('ID', $attachmentId)->where('post_type', 'attachment')->delete();
     }
 
     private function getLatestPostMeta(int $postId, string $key): string
@@ -2653,10 +3899,22 @@ class GigTuneShortcodeService
                         'gigtune_client_company',
                         'gigtune_client_phone',
                         'gigtune_client_base_area',
+                        'gigtune_client_province',
+                        'gigtune_client_address_street',
+                        'gigtune_client_address_suburb',
+                        'gigtune_client_address_city',
+                        'gigtune_client_address_postal_code',
+                        'gigtune_client_address_country',
                     ])[$clientProfileId] ?? [];
                     $company = trim((string) ($meta['gigtune_client_company'] ?? ''));
                     $phoneDigits = preg_replace('/\D+/', '', (string) ($meta['gigtune_client_phone'] ?? '')) ?? '';
                     $baseArea = trim((string) ($meta['gigtune_client_base_area'] ?? ''));
+                    $province = trim((string) ($meta['gigtune_client_province'] ?? ''));
+                    $addressStreet = trim((string) ($meta['gigtune_client_address_street'] ?? ''));
+                    $addressSuburb = trim((string) ($meta['gigtune_client_address_suburb'] ?? ''));
+                    $addressCity = trim((string) ($meta['gigtune_client_address_city'] ?? ''));
+                    $addressPostalCode = trim((string) ($meta['gigtune_client_address_postal_code'] ?? ''));
+                    $addressCountry = trim((string) ($meta['gigtune_client_address_country'] ?? ''));
                     $title = trim((string) ($profile->post_title ?? ''));
                     $bio = trim((string) ($profile->post_content ?? ''));
 
@@ -2687,6 +3945,28 @@ class GigTuneShortcodeService
                     if (strlen($phoneDigits) < 9) {
                         $missing['client_phone'] = [
                             'message' => 'Add a valid phone number in your client profile.',
+                            'url' => '/my-account-page/',
+                        ];
+                    }
+                    if ($province === '') {
+                        $missing['client_province'] = [
+                            'message' => 'Add your province in your client profile.',
+                            'url' => '/my-account-page/',
+                        ];
+                    }
+                    if ($addressStreet === '' || $addressCity === '' || $addressPostalCode === '' || $addressCountry === '') {
+                        $missing['client_address'] = [
+                            'message' => 'Complete your client profile address (street, city, postcode, country).',
+                            'url' => '/my-account-page/',
+                        ];
+                    } elseif (preg_match('/^\d{4}$/', $addressPostalCode) !== 1) {
+                        $missing['client_postal_code'] = [
+                            'message' => 'Client profile postcode must be a 4-digit number.',
+                            'url' => '/my-account-page/',
+                        ];
+                    } elseif ($addressSuburb === '') {
+                        $missing['client_suburb'] = [
+                            'message' => 'Add your suburb in your client profile.',
                             'url' => '/my-account-page/',
                         ];
                     }
@@ -2762,6 +4042,12 @@ class GigTuneShortcodeService
             'gigtune_artist_bank_name',
             'gigtune_artist_branch_code',
             'gigtune_artist_bank_code',
+            'gigtune_artist_address_street',
+            'gigtune_artist_address_suburb',
+            'gigtune_artist_address_city',
+            'gigtune_artist_address_province',
+            'gigtune_artist_address_postal_code',
+            'gigtune_artist_address_country',
         ])[$profileId] ?? [];
         $terms = $this->termMap([$profileId]);
         $performerCount = count($terms[$profileId]['performer_type'] ?? []);
@@ -2775,6 +4061,12 @@ class GigTuneShortcodeService
         $days = $this->days((string) ($meta['gigtune_artist_availability_days'] ?? ''));
         $startTime = trim((string) ($meta['gigtune_artist_availability_start_time'] ?? ''));
         $endTime = trim((string) ($meta['gigtune_artist_availability_end_time'] ?? ''));
+        $addressStreet = trim((string) ($meta['gigtune_artist_address_street'] ?? ''));
+        $addressSuburb = trim((string) ($meta['gigtune_artist_address_suburb'] ?? ''));
+        $addressCity = trim((string) ($meta['gigtune_artist_address_city'] ?? ''));
+        $addressProvince = trim((string) ($meta['gigtune_artist_address_province'] ?? ''));
+        $addressPostalCode = trim((string) ($meta['gigtune_artist_address_postal_code'] ?? ''));
+        $addressCountry = trim((string) ($meta['gigtune_artist_address_country'] ?? ''));
 
         if ($profileName === '') {
             $missing['profile_name'] = ['message' => 'Add your profile name.', 'url' => '/artist-profile-edit/'];
@@ -2799,6 +4091,13 @@ class GigTuneShortcodeService
         }
         if (preg_match('/^\d{2}:\d{2}$/', $startTime) !== 1 || preg_match('/^\d{2}:\d{2}$/', $endTime) !== 1) {
             $missing['availability_time'] = ['message' => 'Set valid availability start and end times.', 'url' => '/artist-profile-edit/'];
+        }
+        if ($addressStreet === '' || $addressCity === '' || $addressProvince === '' || $addressPostalCode === '' || $addressCountry === '') {
+            $missing['address'] = ['message' => 'Complete your profile address (street, city, province, postcode, country).', 'url' => '/artist-profile-edit/'];
+        } elseif (preg_match('/^\d{4}$/', $addressPostalCode) !== 1) {
+            $missing['address_postal_code'] = ['message' => 'Profile postcode must be a 4-digit number.', 'url' => '/artist-profile-edit/'];
+        } elseif ($addressSuburb === '') {
+            $missing['address_suburb'] = ['message' => 'Add your suburb in your profile address.', 'url' => '/artist-profile-edit/'];
         }
 
         if ($context === 'artist_payout_ready') {
@@ -2967,6 +4266,83 @@ class GigTuneShortcodeService
         // Backward compatibility for legacy Laravel checks that still read this flag.
         $emailEnabled = in_array(true, $normalized, true);
         $this->upsertUserMeta($userId, 'gigtune_notify_email', $emailEnabled ? '1' : '0');
+    }
+
+    /** @param array<string,mixed> $context */
+    private function createNotification(int $recipientUserId, string $type, string $message, array $context = []): void
+    {
+        $recipientUserId = abs($recipientUserId);
+        if ($recipientUserId <= 0 || trim($message) === '') {
+            return;
+        }
+
+        $now = now();
+        $nowUtc = now('UTC');
+        $postId = (int) $this->db()->table($this->posts())->insertGetId([
+            'post_author' => 0,
+            'post_date' => $now->format('Y-m-d H:i:s'),
+            'post_date_gmt' => $nowUtc->format('Y-m-d H:i:s'),
+            'post_content' => '',
+            'post_title' => $message,
+            'post_excerpt' => '',
+            'post_status' => 'publish',
+            'comment_status' => 'closed',
+            'ping_status' => 'closed',
+            'post_password' => '',
+            'post_name' => 'gigtune-notification-' . $now->format('YmdHis') . '-' . random_int(100, 999),
+            'to_ping' => '',
+            'pinged' => '',
+            'post_modified' => $now->format('Y-m-d H:i:s'),
+            'post_modified_gmt' => $nowUtc->format('Y-m-d H:i:s'),
+            'post_content_filtered' => '',
+            'post_parent' => 0,
+            'guid' => '',
+            'menu_order' => 0,
+            'post_type' => 'gigtune_notification',
+            'post_mime_type' => '',
+            'comment_count' => 0,
+        ]);
+        if ($postId <= 0) {
+            return;
+        }
+
+        $this->upsertPostMeta($postId, 'gigtune_notification_user_id', (string) $recipientUserId);
+        $this->upsertPostMeta($postId, 'gigtune_notification_recipient_user_id', (string) $recipientUserId);
+        $this->upsertPostMeta($postId, 'recipient_user_id', (string) $recipientUserId);
+        $this->upsertPostMeta($postId, 'gigtune_notification_type', trim($type) !== '' ? $type : 'security');
+        $this->upsertPostMeta($postId, 'notification_type', trim($type) !== '' ? $type : 'security');
+        $this->upsertPostMeta($postId, 'gigtune_notification_message', $message);
+        $this->upsertPostMeta($postId, 'message', $message);
+        $this->upsertPostMeta($postId, 'gigtune_notification_created_at', (string) $now->timestamp);
+        $this->upsertPostMeta($postId, 'created_at', (string) $now->timestamp);
+        $this->upsertPostMeta($postId, 'gigtune_notification_is_read', '0');
+        $this->upsertPostMeta($postId, 'gigtune_notification_is_archived', '0');
+        $this->upsertPostMeta($postId, 'gigtune_notification_is_deleted', '0');
+
+        $objectType = trim((string) ($context['object_type'] ?? ''));
+        if ($objectType !== '') {
+            $this->upsertPostMeta($postId, 'gigtune_notification_object_type', $objectType);
+            $this->upsertPostMeta($postId, 'object_type', $objectType);
+        }
+        $objectId = (int) ($context['object_id'] ?? 0);
+        if ($objectId > 0) {
+            $this->upsertPostMeta($postId, 'gigtune_notification_object_id', (string) $objectId);
+            $this->upsertPostMeta($postId, 'object_id', (string) $objectId);
+        }
+        $artistProfileId = (int) ($context['artist_profile_id'] ?? 0);
+        if ($artistProfileId > 0) {
+            $this->upsertPostMeta($postId, 'artist_profile_id', (string) $artistProfileId);
+        }
+    }
+
+    private function profileNameById(int $profileId): string
+    {
+        $profileId = abs($profileId);
+        if ($profileId <= 0) {
+            return 'Artist';
+        }
+        $title = trim((string) $this->db()->table($this->posts())->where('ID', $profileId)->where('post_type', 'artist_profile')->value('post_title'));
+        return $title !== '' ? $title : ('Artist #' . $profileId);
     }
 
     private function createWpNonce(string $action): string

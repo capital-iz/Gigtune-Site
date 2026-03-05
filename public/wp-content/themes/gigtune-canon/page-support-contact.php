@@ -7,16 +7,12 @@
     <div class="mb-10 ">
       <h1 class="text-3xl md:text-4xl font-bold text-white mb-3">Support / Contact</h1>
       <p class="text-slate-400 text-base md:text-lg max-w-2xl ">Get help fast — we’ll point you to the right place.</p>
-    </div>    <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-10">
-      <div class="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
-        <div class="text-white font-bold mb-2">Help Centre</div>
-        <div class="text-slate-400 text-sm">Common questions about bookings, Temporary Holding, and accounts.</div>
-      </div>
+    </div>    <div class="grid grid-cols-1 md:grid-cols-2 gap-6 mb-10">
       <div class="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">
         <div class="text-white font-bold mb-2">Email Support</div>
         <div class="text-slate-400 text-sm">Send a ticket and we’ll respond.</div>
         <div class="mt-4">
-          <a class="text-purple-400 hover:text-purple-300" href="mailto:support@gigtune.com">support@gigtune.com</a>
+          <a class="text-purple-400 hover:text-purple-300" href="mailto:support@gigtune.africa">support@gigtune.africa</a>
         </div>
       </div>
       <div class="bg-slate-800/50 border border-slate-700/50 rounded-xl p-6">

@@ -304,9 +304,14 @@ class SitePageController extends Controller
         $email = strtolower(trim((string) $request->input('gigtune_email', '')));
         $password = (string) $request->input('gigtune_password', '');
         $confirm = (string) $request->input('gigtune_password_confirm', '');
-        $accepted = (string) $request->input('gigtune_terms_acceptance', '') === '1';
+        $requiredPolicies = array_keys((array) config('gigtune.policy.versions', []));
+        $acceptedPolicies = $this->users->mapAcceptedPolicyInput($request->all());
+        if ((string) $request->input('gigtune_terms_acceptance', '') === '1' && $acceptedPolicies === [] && $requiredPolicies !== []) {
+            $acceptedPolicies = $requiredPolicies;
+        }
+        $hasRequiredPolicyAcceptance = $requiredPolicies === [] || array_values(array_diff($requiredPolicies, $acceptedPolicies)) === [];
 
-        if ($fullName === '' || $email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL) || $password === '' || $password !== $confirm || !$accepted) {
+        if ($fullName === '' || $email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL) || $password === '' || $password !== $confirm || !$hasRequiredPolicyAcceptance) {
             return redirect('/join/?register_error=1&register_error_msg=' . rawurlencode('Please complete all fields and confirm terms.'), 302);
         }
 
@@ -342,6 +347,9 @@ class SitePageController extends Controller
         }
 
         $this->ensureRoleProfile($userId, $role, $fullName, $email);
+        if ($requiredPolicies !== []) {
+            $this->users->storePolicyAcceptance($userId, $requiredPolicies);
+        }
 
         $request->session()->put('gigtune_auth_user_id', $userId);
         $request->session()->put('gigtune_auth_logged_in_at', now()->toIso8601String());

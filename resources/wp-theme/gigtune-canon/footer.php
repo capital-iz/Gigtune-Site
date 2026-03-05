@@ -47,6 +47,53 @@
     }
   });
 })();
+
+(function() {
+  function openPicker(input) {
+    if (!input || input.disabled || input.readOnly) return;
+    if (typeof input.showPicker === 'function') {
+      try { input.showPicker(); } catch (e) {}
+    }
+  }
+
+  function bindInput(input) {
+    if (!input || input.dataset.gtPickerBound === '1') return;
+    input.dataset.gtPickerBound = '1';
+    var open = function() { openPicker(input); };
+    input.addEventListener('focus', open);
+    input.addEventListener('click', open);
+    input.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter' || e.key === ' ') open();
+    });
+  }
+
+  function init(root) {
+    var scope = root && root.querySelectorAll ? root : document;
+    var inputs = scope.querySelectorAll('input[type="date"],input[type="datetime-local"],input[type="time"],input[type="month"]');
+    inputs.forEach(bindInput);
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', function() { init(document); });
+  } else {
+    init(document);
+  }
+
+  if (typeof MutationObserver === 'function') {
+    var observer = new MutationObserver(function(mutations) {
+      mutations.forEach(function(mutation) {
+        mutation.addedNodes.forEach(function(node) {
+          if (!node || node.nodeType !== 1) return;
+          if (node.matches && node.matches('input[type="date"],input[type="datetime-local"],input[type="time"],input[type="month"]')) {
+            bindInput(node);
+          }
+          if (node.querySelectorAll) init(node);
+        });
+      });
+    });
+    observer.observe(document.documentElement, { childList: true, subtree: true });
+  }
+})();
 </script>
 
 <?php wp_footer(); ?>

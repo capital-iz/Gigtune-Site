@@ -601,6 +601,7 @@
                                                                         $docRouteKey = preg_replace('/[^A-Za-z0-9_-]/', '', (string) $docKey) ?? '';
                                                                         $previewHref = '';
                                                                         $downloadHref = '';
+                                                                        $previewMime = strtolower(trim((string) ($document['mime'] ?? '')));
                                                                         if ($docRouteKey !== '') {
                                                                             $previewHref = '/admin-dashboard/kyc/documents/' . $submissionId . '/' . $docRouteKey . '/preview';
                                                                             $downloadHref = '/admin-dashboard/kyc/documents/' . $submissionId . '/' . $docRouteKey . '/download';
@@ -609,7 +610,13 @@
                                                                     <div class="flex flex-wrap items-center gap-2">
                                                                         <span class="text-slate-300 min-w-[140px]">{{ $docLabel !== '' ? $docLabel : 'Document' }}</span>
                                                                         @if ($previewHref !== '' && $downloadHref !== '')
-                                                                            <a href="{{ $previewHref }}" target="_blank" rel="noopener" class="inline-flex items-center rounded-lg bg-white/10 px-3 py-2 text-white hover:bg-white/15">Preview</a>
+                                                                            <button type="button"
+                                                                                data-gt-kyc-preview="1"
+                                                                                data-preview-url="{{ $previewHref }}"
+                                                                                data-preview-mime="{{ $previewMime }}"
+                                                                                class="inline-flex items-center rounded-lg bg-white/10 px-3 py-2 text-white hover:bg-white/15">
+                                                                                Preview
+                                                                            </button>
                                                                             <a href="{{ $downloadHref }}" target="_blank" rel="noopener" class="inline-flex items-center rounded-lg bg-white/10 px-3 py-2 text-white hover:bg-white/15">Download</a>
                                                                         @endif
                                                                     </div>
@@ -658,6 +665,148 @@
                         @endforeach
                     </div>
                 </div>
+
+                <div id="gt-kyc-preview-modal" class="fixed inset-0 z-50 hidden items-center justify-center bg-black/80 p-4">
+                    <div class="w-full max-w-6xl rounded-2xl border border-white/10 bg-slate-900 shadow-2xl">
+                        <div class="flex items-center justify-between gap-3 border-b border-white/10 px-4 py-3">
+                            <h4 class="text-sm font-semibold text-white">Identity Verification document preview</h4>
+                            <div class="flex flex-wrap items-center gap-2">
+                                <button type="button" data-gt-kyc-preview-fit="1" class="inline-flex items-center rounded-lg bg-white/10 px-2.5 py-2 text-xs text-white hover:bg-white/15">Fit</button>
+                                <button type="button" data-gt-kyc-preview-zoom-out="1" class="inline-flex items-center rounded-lg bg-white/10 px-2.5 py-2 text-xs text-white hover:bg-white/15">-</button>
+                                <button type="button" data-gt-kyc-preview-zoom-in="1" class="inline-flex items-center rounded-lg bg-white/10 px-2.5 py-2 text-xs text-white hover:bg-white/15">+</button>
+                                <button type="button" data-gt-kyc-preview-rotate-left="1" class="inline-flex items-center rounded-lg bg-white/10 px-2.5 py-2 text-xs text-white hover:bg-white/15">&#8634;</button>
+                                <button type="button" data-gt-kyc-preview-rotate-right="1" class="inline-flex items-center rounded-lg bg-white/10 px-2.5 py-2 text-xs text-white hover:bg-white/15">&#8635;</button>
+                                <button type="button" data-gt-kyc-preview-fullscreen="1" class="inline-flex items-center rounded-lg bg-white/10 px-2.5 py-2 text-xs text-white hover:bg-white/15" title="Fullscreen">
+                                    <span aria-hidden="true">&#9974;</span>
+                                </button>
+                                <button type="button" data-gt-kyc-preview-close="1" class="inline-flex items-center rounded-lg bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/15">Close</button>
+                            </div>
+                        </div>
+                        <div id="gt-kyc-preview-stage" class="relative h-[75vh] w-full overflow-auto rounded-b-2xl bg-black flex items-center justify-center">
+                            <iframe id="gt-kyc-preview-frame" title="Identity Verification document preview" class="hidden h-full w-full border-0 bg-black"></iframe>
+                            <img id="gt-kyc-preview-image" alt="Identity Verification document preview image" class="hidden max-h-full max-w-full object-contain origin-center transition-transform duration-150 select-none" />
+                        </div>
+                    </div>
+                </div>
+                <script>
+                    (function () {
+                        var modal = document.getElementById('gt-kyc-preview-modal');
+                        var stage = document.getElementById('gt-kyc-preview-stage');
+                        var frame = document.getElementById('gt-kyc-preview-frame');
+                        var image = document.getElementById('gt-kyc-preview-image');
+                        if (!modal || !stage || !frame || !image) return;
+
+                        var state = { mode: '', scale: 1, rotation: 0 };
+
+                        function applyTransform() {
+                            if (state.mode !== 'image') return;
+                            image.style.transform = 'scale(' + state.scale + ') rotate(' + state.rotation + 'deg)';
+                        }
+
+                        function fit() {
+                            state.scale = 1;
+                            state.rotation = 0;
+                            applyTransform();
+                            if (state.mode === 'pdf') {
+                                var src = frame.getAttribute('src') || '';
+                                if (src !== '') {
+                                    frame.setAttribute('src', src.replace(/#.*$/, '') + '#zoom=page-fit');
+                                }
+                            }
+                        }
+
+                        function show(url, mime) {
+                            var safeUrl = String(url || '').trim();
+                            if (!safeUrl) return;
+                            state.mode = (String(mime || '').toLowerCase().indexOf('pdf') !== -1) ? 'pdf' : 'image';
+                            state.scale = 1;
+                            state.rotation = 0;
+                            if (state.mode === 'pdf') {
+                                image.classList.add('hidden');
+                                image.removeAttribute('src');
+                                frame.classList.remove('hidden');
+                                frame.setAttribute('src', safeUrl + '#zoom=page-fit');
+                            } else {
+                                frame.classList.add('hidden');
+                                frame.removeAttribute('src');
+                                image.classList.remove('hidden');
+                                image.setAttribute('src', safeUrl);
+                                applyTransform();
+                            }
+                            modal.classList.remove('hidden');
+                            modal.classList.add('flex');
+                        }
+
+                        function closeModal() {
+                            modal.classList.add('hidden');
+                            modal.classList.remove('flex');
+                            frame.classList.add('hidden');
+                            frame.removeAttribute('src');
+                            image.classList.add('hidden');
+                            image.removeAttribute('src');
+                            image.style.transform = '';
+                            state.mode = '';
+                        }
+
+                        document.querySelectorAll('[data-gt-kyc-preview="1"]').forEach(function (button) {
+                            button.addEventListener('click', function () {
+                                show(button.getAttribute('data-preview-url') || '', button.getAttribute('data-preview-mime') || '');
+                            });
+                        });
+
+                        modal.querySelectorAll('[data-gt-kyc-preview-close="1"]').forEach(function (button) {
+                            button.addEventListener('click', closeModal);
+                        });
+                        modal.querySelectorAll('[data-gt-kyc-preview-fit="1"]').forEach(function (button) {
+                            button.addEventListener('click', fit);
+                        });
+                        modal.querySelectorAll('[data-gt-kyc-preview-zoom-in="1"]').forEach(function (button) {
+                            button.addEventListener('click', function () {
+                                if (state.mode !== 'image') return;
+                                state.scale = Math.min(4, state.scale + 0.2);
+                                applyTransform();
+                            });
+                        });
+                        modal.querySelectorAll('[data-gt-kyc-preview-zoom-out="1"]').forEach(function (button) {
+                            button.addEventListener('click', function () {
+                                if (state.mode !== 'image') return;
+                                state.scale = Math.max(0.4, state.scale - 0.2);
+                                applyTransform();
+                            });
+                        });
+                        modal.querySelectorAll('[data-gt-kyc-preview-rotate-left="1"]').forEach(function (button) {
+                            button.addEventListener('click', function () {
+                                if (state.mode !== 'image') return;
+                                state.rotation -= 90;
+                                applyTransform();
+                            });
+                        });
+                        modal.querySelectorAll('[data-gt-kyc-preview-rotate-right="1"]').forEach(function (button) {
+                            button.addEventListener('click', function () {
+                                if (state.mode !== 'image') return;
+                                state.rotation += 90;
+                                applyTransform();
+                            });
+                        });
+                        modal.querySelectorAll('[data-gt-kyc-preview-fullscreen="1"]').forEach(function (button) {
+                            button.addEventListener('click', function () {
+                                if (document.fullscreenElement) {
+                                    document.exitFullscreen().catch(function () {});
+                                } else if (stage.requestFullscreen) {
+                                    stage.requestFullscreen().catch(function () {});
+                                }
+                            });
+                        });
+                        modal.addEventListener('click', function (event) {
+                            if (event.target === modal) closeModal();
+                        });
+                        document.addEventListener('keydown', function (event) {
+                            if (event.key === 'Escape' && !modal.classList.contains('hidden')) {
+                                closeModal();
+                            }
+                        });
+                    })();
+                </script>
             @endif
 
             @if ($activeTab === 'reports')

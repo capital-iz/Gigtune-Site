@@ -352,6 +352,21 @@ class WordPressUserService
             $this->upsertUserMeta($userId, 'gigtune_terms_version', (string) $required['terms']);
             $this->upsertUserMeta($userId, 'gigtune_terms_accepted', $acceptedAt);
         }
+        if (in_array('terms', $cleanKeys, true)) {
+            $this->upsertUserMeta($userId, 'gigtune_terms_acceptance', '1');
+        }
+        $legacyAcceptedMap = [
+            'terms' => 'gigtune_accept_terms',
+            'aup' => 'gigtune_accept_aup',
+            'privacy' => 'gigtune_accept_privacy',
+            'refund' => 'gigtune_accept_refund',
+        ];
+        foreach ($cleanKeys as $policyKey) {
+            $legacyField = $legacyAcceptedMap[$policyKey] ?? '';
+            if ($legacyField !== '') {
+                $this->upsertUserMeta($userId, $legacyField, '1');
+            }
+        }
 
         return $current;
     }
@@ -362,6 +377,9 @@ class WordPressUserService
         $selected = [];
 
         if ($this->inputToBool($input['accept_all'] ?? false)) {
+            return $required;
+        }
+        if ($this->inputToBool($input['gigtune_terms_acceptance'] ?? false)) {
             return $required;
         }
 
@@ -476,21 +494,62 @@ class WordPressUserService
     private function getPolicyAcceptance(int $userId): array
     {
         $raw = $this->getUserMeta($userId, 'gigtune_policy_acceptance');
-        if (!is_array($raw)) {
-            return [];
+        $normalized = [];
+        if (is_array($raw)) {
+            foreach ($raw as $policy => $value) {
+                $policyKey = $this->normalizePolicyKey($policy);
+                if ($policyKey === '' || !is_array($value)) {
+                    continue;
+                }
+
+                $normalized[$policyKey] = [
+                    'version' => trim((string) ($value['version'] ?? '')),
+                    'accepted_at' => trim((string) ($value['accepted_at'] ?? '')),
+                ];
+            }
         }
 
-        $normalized = [];
-        foreach ($raw as $policy => $value) {
-            $policyKey = $this->normalizePolicyKey($policy);
-            if ($policyKey === '' || !is_array($value)) {
+        $required = $this->requiredPolicyVersions();
+        $acceptedAt = trim((string) $this->getUserMeta($userId, 'gigtune_terms_accepted'));
+        $termsVersion = trim((string) $this->getUserMeta($userId, 'gigtune_terms_version'));
+        $legacyTermsAccepted = $this->inputToBool($this->getUserMeta($userId, 'gigtune_terms_acceptance'));
+
+        if ($legacyTermsAccepted) {
+            foreach ($required as $policyKey => $version) {
+                if (!isset($normalized[$policyKey])) {
+                    $normalized[$policyKey] = [
+                        'version' => (string) $version,
+                        'accepted_at' => $acceptedAt,
+                    ];
+                }
+            }
+        }
+
+        $legacyAcceptedMap = [
+            'terms' => 'gigtune_accept_terms',
+            'aup' => 'gigtune_accept_aup',
+            'privacy' => 'gigtune_accept_privacy',
+            'refund' => 'gigtune_accept_refund',
+        ];
+        foreach ($legacyAcceptedMap as $policyKey => $legacyField) {
+            if (!$this->inputToBool($this->getUserMeta($userId, $legacyField))) {
                 continue;
             }
-
+            if (isset($normalized[$policyKey])) {
+                continue;
+            }
+            $version = trim((string) ($required[$policyKey] ?? ''));
+            if ($policyKey === 'terms' && $termsVersion !== '') {
+                $version = $termsVersion;
+            }
             $normalized[$policyKey] = [
-                'version' => trim((string) ($value['version'] ?? '')),
-                'accepted_at' => trim((string) ($value['accepted_at'] ?? '')),
+                'version' => $version,
+                'accepted_at' => $acceptedAt,
             ];
+        }
+
+        if (isset($normalized['terms']) && trim((string) ($normalized['terms']['version'] ?? '')) === '' && $termsVersion !== '') {
+            $normalized['terms']['version'] = $termsVersion;
         }
 
         return $normalized;

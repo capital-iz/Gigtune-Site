@@ -2,6 +2,7 @@
 
 @section('content')
     @php
+        $adminNotifications = is_array($adminNotifications ?? null) ? $adminNotifications : [];
         $sentenceCase = function ($value): string {
             $value = trim((string) $value);
             if ($value === '') {

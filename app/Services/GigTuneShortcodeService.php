@@ -497,6 +497,54 @@ class GigTuneShortcodeService
                     $this->upsertPostMeta($profileId, 'gigtune_client_banner_id', '0');
                     $statusMessage = 'Profile banner removed.';
                 }
+            } elseif (in_array(trim((string) $request->input('gigtune_client_media_apply', '')), ['photo', 'banner'], true)) {
+                $skipClientProfileSave = true;
+                $applyMedia = trim((string) $request->input('gigtune_client_media_apply', ''));
+                if ($applyMedia === 'photo') {
+                    $photoFile = $request->file('gt_profile_photo_file');
+                    if (!($photoFile instanceof UploadedFile)) {
+                        $photoFile = $request->file('gigtune_client_photo');
+                    }
+                    if (!($photoFile instanceof UploadedFile)) {
+                        $photoFile = $request->file('gigtune_profile_photo');
+                    }
+                    if (!($photoFile instanceof UploadedFile)) {
+                        $photoFile = $request->file('profile_photo');
+                    }
+                    $photoId = $this->saveUploadedAttachment($photoFile, $uid, $profileId, 'Client Profile Photo');
+                    if ($photoId > 0) {
+                        $oldPhotoId = (int) $this->getLatestPostMeta($profileId, 'gigtune_client_photo_id');
+                        if ($oldPhotoId > 0 && $oldPhotoId !== $photoId) {
+                            $this->deleteAttachment($oldPhotoId);
+                        }
+                        $this->upsertPostMeta($profileId, 'gigtune_client_photo_id', (string) $photoId);
+                        $statusMessage = 'Profile photo updated.';
+                    } else {
+                        $errorMessage = 'Please select a valid profile photo first.';
+                    }
+                } else {
+                    $bannerFile = $request->file('gt_profile_banner_file');
+                    if (!($bannerFile instanceof UploadedFile)) {
+                        $bannerFile = $request->file('gigtune_client_banner');
+                    }
+                    if (!($bannerFile instanceof UploadedFile)) {
+                        $bannerFile = $request->file('gigtune_profile_banner');
+                    }
+                    if (!($bannerFile instanceof UploadedFile)) {
+                        $bannerFile = $request->file('profile_banner');
+                    }
+                    $bannerId = $this->saveUploadedAttachment($bannerFile, $uid, $profileId, 'Client Profile Banner');
+                    if ($bannerId > 0) {
+                        $oldBannerId = (int) $this->getLatestPostMeta($profileId, 'gigtune_client_banner_id');
+                        if ($oldBannerId > 0 && $oldBannerId !== $bannerId) {
+                            $this->deleteAttachment($oldBannerId);
+                        }
+                        $this->upsertPostMeta($profileId, 'gigtune_client_banner_id', (string) $bannerId);
+                        $statusMessage = 'Profile banner updated.';
+                    } else {
+                        $errorMessage = 'Please select a valid profile banner first.';
+                    }
+                }
             } elseif ((string) $request->input('gigtune_client_account_submit', '') === '1') {
                 $skipClientProfileSave = true;
                 $newEmail = strtolower(trim((string) $request->input('gigtune_account_email', '')));
@@ -604,6 +652,12 @@ class GigTuneShortcodeService
                 if (!($photoFile instanceof UploadedFile)) {
                     $photoFile = $request->file('gigtune_client_photo');
                 }
+                if (!($photoFile instanceof UploadedFile)) {
+                    $photoFile = $request->file('gigtune_profile_photo');
+                }
+                if (!($photoFile instanceof UploadedFile)) {
+                    $photoFile = $request->file('profile_photo');
+                }
                 $photoId = $this->saveUploadedAttachment($photoFile, $uid, $profileId, 'Client Profile Photo');
                 if ($photoId > 0) {
                     $oldPhotoId = (int) $this->getLatestPostMeta($profileId, 'gigtune_client_photo_id');
@@ -616,6 +670,12 @@ class GigTuneShortcodeService
                 $bannerFile = $request->file('gt_profile_banner_file');
                 if (!($bannerFile instanceof UploadedFile)) {
                     $bannerFile = $request->file('gigtune_client_banner');
+                }
+                if (!($bannerFile instanceof UploadedFile)) {
+                    $bannerFile = $request->file('gigtune_profile_banner');
+                }
+                if (!($bannerFile instanceof UploadedFile)) {
+                    $bannerFile = $request->file('profile_banner');
                 }
                 $bannerId = $this->saveUploadedAttachment($bannerFile, $uid, $profileId, 'Client Profile Banner');
                 if ($bannerId > 0) {
@@ -663,6 +723,10 @@ class GigTuneShortcodeService
         }
         $photoUrl = $this->attachmentUrl((int) ($meta['gigtune_client_photo_id'] ?? 0));
         $bannerUrl = $this->attachmentUrl((int) ($meta['gigtune_client_banner_id'] ?? 0));
+        $clientPhotoHidden = $photoUrl === '' ? ' hidden' : '';
+        $clientPhotoPlaceholderHidden = $photoUrl !== '' ? ' hidden' : '';
+        $clientBannerHidden = $bannerUrl === '' ? ' hidden' : '';
+        $clientBannerPlaceholderHidden = $bannerUrl !== '' ? ' hidden' : '';
 
         $html = '<form method="post" enctype="multipart/form-data" class="space-y-6 rounded-2xl border border-white/10 bg-white/5 p-6">';
         if ($statusMessage !== '') {
@@ -676,26 +740,26 @@ class GigTuneShortcodeService
         $html .= '<div class="grid gap-4 md:grid-cols-2">';
         $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-4">';
         $html .= '<p class="mb-3 text-sm font-semibold text-white">Profile photo</p>';
-        if ($photoUrl !== '') {
-            $html .= '<img src="' . e($photoUrl) . '" alt="Client profile photo" class="h-24 w-24 rounded-full object-cover border border-white/10">';
-        } else {
-            $html .= '<div class="h-24 w-24 rounded-full border border-white/10 bg-slate-900/70 text-xs text-slate-400 flex items-center justify-center">No photo</div>';
-        }
+        $html .= '<img id="gt-client-photo-preview" src="' . e($photoUrl) . '" alt="Client profile photo" class="h-24 w-24 rounded-full object-cover border border-white/10' . $clientPhotoHidden . '">';
+        $html .= '<div id="gt-client-photo-placeholder" class="h-24 w-24 rounded-full border border-white/10 bg-slate-900/70 text-xs text-slate-400 flex items-center justify-center' . $clientPhotoPlaceholderHidden . '">No photo</div>';
         $html .= '<div class="mt-3 space-y-2">';
-        $html .= '<input type="file" name="gt_profile_photo_file" accept="image/*" class="block w-full text-sm text-slate-200">';
-        $html .= '<button type="submit" name="gigtune_client_media_remove" value="photo" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Remove photo now</button>';
+        $html .= '<input id="gt-client-photo-input" type="file" name="gt_profile_photo_file" accept="image/*" data-gt-preview-id="gt-client-photo-preview" data-gt-placeholder-id="gt-client-photo-placeholder" data-crop-ratio="1" class="block w-full text-sm text-slate-200">';
+        $html .= '<div class="flex flex-wrap gap-2">';
+        $html .= '<button type="submit" name="gigtune_client_media_apply" value="photo" class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500">Apply photo</button>';
+        $html .= '<button type="submit" name="gigtune_client_media_remove" value="photo" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Remove photo</button>';
+        $html .= '</div>';
         $html .= '</div>';
         $html .= '</div>';
         $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-4">';
         $html .= '<p class="mb-3 text-sm font-semibold text-white">Profile banner</p>';
-        if ($bannerUrl !== '') {
-            $html .= '<img src="' . e($bannerUrl) . '" alt="Client profile banner" class="h-24 w-full rounded-xl object-cover border border-white/10">';
-        } else {
-            $html .= '<div class="h-24 w-full rounded-xl border border-white/10 bg-slate-900/70 text-xs text-slate-400 flex items-center justify-center">No banner image</div>';
-        }
+        $html .= '<img id="gt-client-banner-preview" src="' . e($bannerUrl) . '" alt="Client profile banner" class="h-24 w-full rounded-xl object-cover border border-white/10' . $clientBannerHidden . '">';
+        $html .= '<div id="gt-client-banner-placeholder" class="h-24 w-full rounded-xl border border-white/10 bg-slate-900/70 text-xs text-slate-400 flex items-center justify-center' . $clientBannerPlaceholderHidden . '">No banner image</div>';
         $html .= '<div class="mt-3 space-y-2">';
-        $html .= '<input type="file" name="gt_profile_banner_file" accept="image/*" class="block w-full text-sm text-slate-200">';
-        $html .= '<button type="submit" name="gigtune_client_media_remove" value="banner" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Remove banner now</button>';
+        $html .= '<input id="gt-client-banner-input" type="file" name="gt_profile_banner_file" accept="image/*" data-gt-preview-id="gt-client-banner-preview" data-gt-placeholder-id="gt-client-banner-placeholder" data-crop-ratio="3" class="block w-full text-sm text-slate-200">';
+        $html .= '<div class="flex flex-wrap gap-2">';
+        $html .= '<button type="submit" name="gigtune_client_media_apply" value="banner" class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500">Apply banner</button>';
+        $html .= '<button type="submit" name="gigtune_client_media_remove" value="banner" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Remove banner</button>';
+        $html .= '</div>';
         $html .= '</div>';
         $html .= '</div>';
         $html .= '</div>';
@@ -741,6 +805,7 @@ class GigTuneShortcodeService
         $html .= '<a class="rounded-md border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200" href="/client-profile/?client_profile_id=' . (int) $profileId . '">Preview profile</a>';
         $html .= '</div>';
         $html .= '</form>';
+        $html .= $this->renderProfileMediaEnhancementsScript();
 
         return $html;
     }
@@ -1043,6 +1108,54 @@ class GigTuneShortcodeService
                     $this->upsertPostMeta($profileId, 'gigtune_artist_banner_id', '0');
                     $statusMessage = 'Profile banner removed.';
                 }
+            } elseif (in_array(trim((string) $request->input('gigtune_artist_media_apply', '')), ['photo', 'banner'], true)) {
+                $skipArtistProfileSave = true;
+                $applyMedia = trim((string) $request->input('gigtune_artist_media_apply', ''));
+                if ($applyMedia === 'photo') {
+                    $artistPhotoFile = $request->file('gt_profile_photo_file');
+                    if (!($artistPhotoFile instanceof UploadedFile)) {
+                        $artistPhotoFile = $request->file('gigtune_artist_photo');
+                    }
+                    if (!($artistPhotoFile instanceof UploadedFile)) {
+                        $artistPhotoFile = $request->file('gigtune_profile_photo');
+                    }
+                    if (!($artistPhotoFile instanceof UploadedFile)) {
+                        $artistPhotoFile = $request->file('profile_photo');
+                    }
+                    $photoId = $this->saveUploadedAttachment($artistPhotoFile, $uid, $profileId, 'Artist Profile Photo');
+                    if ($photoId > 0) {
+                        $oldPhotoId = (int) $this->getLatestPostMeta($profileId, 'gigtune_artist_photo_id');
+                        if ($oldPhotoId > 0 && $oldPhotoId !== $photoId) {
+                            $this->deleteAttachment($oldPhotoId);
+                        }
+                        $this->upsertPostMeta($profileId, 'gigtune_artist_photo_id', (string) $photoId);
+                        $statusMessage = 'Profile photo updated.';
+                    } else {
+                        $errorMessage = 'Please select a valid profile photo first.';
+                    }
+                } else {
+                    $artistBannerFile = $request->file('gt_profile_banner_file');
+                    if (!($artistBannerFile instanceof UploadedFile)) {
+                        $artistBannerFile = $request->file('gigtune_artist_banner');
+                    }
+                    if (!($artistBannerFile instanceof UploadedFile)) {
+                        $artistBannerFile = $request->file('gigtune_profile_banner');
+                    }
+                    if (!($artistBannerFile instanceof UploadedFile)) {
+                        $artistBannerFile = $request->file('profile_banner');
+                    }
+                    $bannerId = $this->saveUploadedAttachment($artistBannerFile, $uid, $profileId, 'Artist Profile Banner');
+                    if ($bannerId > 0) {
+                        $oldBannerId = (int) $this->getLatestPostMeta($profileId, 'gigtune_artist_banner_id');
+                        if ($oldBannerId > 0 && $oldBannerId !== $bannerId) {
+                            $this->deleteAttachment($oldBannerId);
+                        }
+                        $this->upsertPostMeta($profileId, 'gigtune_artist_banner_id', (string) $bannerId);
+                        $statusMessage = 'Profile banner updated.';
+                    } else {
+                        $errorMessage = 'Please select a valid profile banner first.';
+                    }
+                }
             } elseif ((string) $request->input('gigtune_artist_account_submit', '') === '1') {
                 $skipArtistProfileSave = true;
                 $newEmail = strtolower(trim((string) $request->input('gigtune_account_email', '')));
@@ -1237,6 +1350,12 @@ class GigTuneShortcodeService
                 if (!($artistPhotoFile instanceof UploadedFile)) {
                     $artistPhotoFile = $request->file('gigtune_artist_photo');
                 }
+                if (!($artistPhotoFile instanceof UploadedFile)) {
+                    $artistPhotoFile = $request->file('gigtune_profile_photo');
+                }
+                if (!($artistPhotoFile instanceof UploadedFile)) {
+                    $artistPhotoFile = $request->file('profile_photo');
+                }
                 $photoId = $this->saveUploadedAttachment($artistPhotoFile, $uid, $profileId, 'Artist Profile Photo');
                 if ($photoId > 0) {
                     $oldPhotoId = (int) $this->getLatestPostMeta($profileId, 'gigtune_artist_photo_id');
@@ -1248,6 +1367,12 @@ class GigTuneShortcodeService
                 $artistBannerFile = $request->file('gt_profile_banner_file');
                 if (!($artistBannerFile instanceof UploadedFile)) {
                     $artistBannerFile = $request->file('gigtune_artist_banner');
+                }
+                if (!($artistBannerFile instanceof UploadedFile)) {
+                    $artistBannerFile = $request->file('gigtune_profile_banner');
+                }
+                if (!($artistBannerFile instanceof UploadedFile)) {
+                    $artistBannerFile = $request->file('profile_banner');
                 }
                 $bannerId = $this->saveUploadedAttachment($artistBannerFile, $uid, $profileId, 'Artist Profile Banner');
                 if ($bannerId > 0) {
@@ -1387,6 +1512,10 @@ class GigTuneShortcodeService
         }
         $photoUrl = $this->attachmentUrl((int) ($meta['gigtune_artist_photo_id'] ?? 0));
         $bannerUrl = $this->attachmentUrl((int) ($meta['gigtune_artist_banner_id'] ?? 0));
+        $artistPhotoHidden = $photoUrl === '' ? ' hidden' : '';
+        $artistPhotoPlaceholderHidden = $photoUrl !== '' ? ' hidden' : '';
+        $artistBannerHidden = $bannerUrl === '' ? ' hidden' : '';
+        $artistBannerPlaceholderHidden = $bannerUrl !== '' ? ' hidden' : '';
         $demoVideos = $this->demoVideos((string) ($meta['gigtune_demo_videos'] ?? ''));
         $selectedTaxonomies = $this->postTermSlugs($profileId, ['performer_type', 'instrument_category', 'keyboard_parts', 'vocal_type', 'vocal_role']);
         $taxonomyOptions = $this->getFilterOptions();
@@ -1426,26 +1555,26 @@ class GigTuneShortcodeService
         $html .= '<div class="grid gap-4 md:grid-cols-2">';
         $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-4">';
         $html .= '<p class="mb-3 text-sm font-semibold text-white">Profile photo</p>';
-        if ($photoUrl !== '') {
-            $html .= '<img src="' . e($photoUrl) . '" alt="Artist profile photo" class="h-24 w-24 rounded-full object-cover border border-white/10">';
-        } else {
-            $html .= '<div class="h-24 w-24 rounded-full border border-white/10 bg-slate-900/70 text-xs text-slate-400 flex items-center justify-center">No photo</div>';
-        }
+        $html .= '<img id="gt-artist-photo-preview" src="' . e($photoUrl) . '" alt="Artist profile photo" class="h-24 w-24 rounded-full object-cover border border-white/10' . $artistPhotoHidden . '">';
+        $html .= '<div id="gt-artist-photo-placeholder" class="h-24 w-24 rounded-full border border-white/10 bg-slate-900/70 text-xs text-slate-400 flex items-center justify-center' . $artistPhotoPlaceholderHidden . '">No photo</div>';
         $html .= '<div class="mt-3 space-y-2">';
-        $html .= '<input type="file" name="gt_profile_photo_file" accept="image/*" class="block w-full text-sm text-slate-200">';
-        $html .= '<button type="submit" name="gigtune_artist_media_remove" value="photo" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Remove photo now</button>';
+        $html .= '<input id="gt-artist-photo-input" type="file" name="gt_profile_photo_file" accept="image/*" data-gt-preview-id="gt-artist-photo-preview" data-gt-placeholder-id="gt-artist-photo-placeholder" data-crop-ratio="1" class="block w-full text-sm text-slate-200">';
+        $html .= '<div class="flex flex-wrap gap-2">';
+        $html .= '<button type="submit" name="gigtune_artist_media_apply" value="photo" class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500">Apply photo</button>';
+        $html .= '<button type="submit" name="gigtune_artist_media_remove" value="photo" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Remove photo</button>';
+        $html .= '</div>';
         $html .= '</div>';
         $html .= '</div>';
         $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-4">';
         $html .= '<p class="mb-3 text-sm font-semibold text-white">Profile banner</p>';
-        if ($bannerUrl !== '') {
-            $html .= '<img src="' . e($bannerUrl) . '" alt="Artist profile banner" class="h-24 w-full rounded-xl object-cover border border-white/10">';
-        } else {
-            $html .= '<div class="h-24 w-full rounded-xl border border-white/10 bg-slate-900/70 text-xs text-slate-400 flex items-center justify-center">No banner image</div>';
-        }
+        $html .= '<img id="gt-artist-banner-preview" src="' . e($bannerUrl) . '" alt="Artist profile banner" class="h-24 w-full rounded-xl object-cover border border-white/10' . $artistBannerHidden . '">';
+        $html .= '<div id="gt-artist-banner-placeholder" class="h-24 w-full rounded-xl border border-white/10 bg-slate-900/70 text-xs text-slate-400 flex items-center justify-center' . $artistBannerPlaceholderHidden . '">No banner image</div>';
         $html .= '<div class="mt-3 space-y-2">';
-        $html .= '<input type="file" name="gt_profile_banner_file" accept="image/*" class="block w-full text-sm text-slate-200">';
-        $html .= '<button type="submit" name="gigtune_artist_media_remove" value="banner" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Remove banner now</button>';
+        $html .= '<input id="gt-artist-banner-input" type="file" name="gt_profile_banner_file" accept="image/*" data-gt-preview-id="gt-artist-banner-preview" data-gt-placeholder-id="gt-artist-banner-placeholder" data-crop-ratio="3" class="block w-full text-sm text-slate-200">';
+        $html .= '<div class="flex flex-wrap gap-2">';
+        $html .= '<button type="submit" name="gigtune_artist_media_apply" value="banner" class="inline-flex items-center justify-center rounded-lg bg-blue-600 px-3 py-2 text-xs font-semibold text-white hover:bg-blue-500">Apply banner</button>';
+        $html .= '<button type="submit" name="gigtune_artist_media_remove" value="banner" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Remove banner</button>';
+        $html .= '</div>';
         $html .= '</div>';
         $html .= '</div>';
         $html .= '</div>';
@@ -1586,6 +1715,7 @@ class GigTuneShortcodeService
 
         $html .= '<div class="flex flex-wrap gap-2"><button type="submit" class="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Save profile</button><a class="rounded-md border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200" href="/artist-profile/?artist_id=' . (int) $profileId . '">Preview profile</a></div>';
         $html .= '</form>';
+        $html .= $this->renderProfileMediaEnhancementsScript();
         return $html;
     }
 
@@ -2029,9 +2159,15 @@ class GigTuneShortcodeService
                 'gigtune_booking_location_text',
                 'gigtune_booking_requested_at',
                 'gigtune_booking_request_expires_at',
+                'gigtune_booking_responded_at',
+                'gigtune_booking_reject_reason',
                 'gigtune_booking_locked',
                 'gigtune_booking_budget',
                 'gigtune_booking_quote_amount',
+                'gigtune_payment_method',
+                'gigtune_payment_reported_at',
+                'gigtune_payment_window_expires_at',
+                'gigtune_payment_reference_human',
             ])[$bookingId] ?? [];
 
             $clientUserId = (int) ($bookingMeta['gigtune_booking_client_user_id'] ?? 0);
@@ -2062,6 +2198,12 @@ class GigTuneShortcodeService
                 $action = trim((string) $request->input('gigtune_booking_action', ''));
                 $currentStatus = strtoupper(trim((string) ($bookingMeta['gigtune_booking_status'] ?? '')));
                 $paymentStatus = strtoupper(trim((string) ($bookingMeta['gigtune_payment_status'] ?? '')));
+                $paymentWindowExpiresAt = (int) ($bookingMeta['gigtune_payment_window_expires_at'] ?? 0);
+                $paymentWindowExpired = $paymentWindowExpiresAt > 0 && $paymentWindowExpiresAt < time();
+                $nowTs = (string) now()->timestamp;
+                $nowMysql = now()->format('Y-m-d H:i:s');
+                $paymentWindowHours = 24;
+                $rejectReason = trim((string) $request->input('gigtune_booking_reject_reason', ''));
 
                 if (!$this->verifyWpNonce($nonce, 'gigtune_booking_action')) {
                     $errorMessage = 'Security check failed.';
@@ -2071,12 +2213,16 @@ class GigTuneShortcodeService
                     } elseif ($currentStatus !== 'REQUESTED') {
                         $errorMessage = 'Booking request can only be accepted while pending.';
                     } else {
-                        $ts = (string) now()->timestamp;
                         $this->upsertPostMeta($bookingId, 'gigtune_booking_status', 'ACCEPTED_PENDING_PAYMENT');
-                        $this->upsertPostMeta($bookingId, 'gigtune_booking_accepted_at', $ts);
+                        $this->upsertPostMeta($bookingId, 'gigtune_booking_accepted_at', $nowTs);
+                        $this->upsertPostMeta($bookingId, 'gigtune_booking_responded_at', $nowMysql);
+                        $this->upsertPostMeta($bookingId, 'gigtune_booking_reject_reason', '');
                         $this->upsertPostMeta($bookingId, 'gigtune_booking_last_actor_user_id', (string) $uid);
+                        $this->upsertPostMeta($bookingId, 'gigtune_payment_status', 'UNPAID');
+                        $this->upsertPostMeta($bookingId, 'gigtune_payment_window_expires_at', (string) (time() + ($paymentWindowHours * 3600)));
+                        $this->upsertPostMeta($bookingId, 'gigtune_escrow_status', 'UNFUNDED');
                         if ($clientUserId > 0) {
-                            $this->createNotification($clientUserId, 'booking', 'Booking #' . $bookingId . ' was accepted by the artist. Proceed to payment confirmation.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                            $this->createNotification($clientUserId, 'booking', 'Booking #' . $bookingId . ' was accepted by the artist and is awaiting payment.', ['object_type' => 'booking', 'object_id' => $bookingId]);
                         }
                         $statusMessage = 'Booking accepted.';
                     }
@@ -2086,14 +2232,114 @@ class GigTuneShortcodeService
                     } elseif ($currentStatus !== 'REQUESTED') {
                         $errorMessage = 'Booking request can only be declined while pending.';
                     } else {
-                        $ts = (string) now()->timestamp;
-                        $this->upsertPostMeta($bookingId, 'gigtune_booking_status', 'DECLINED_BY_ARTIST');
-                        $this->upsertPostMeta($bookingId, 'gigtune_booking_declined_at', $ts);
+                        $this->upsertPostMeta($bookingId, 'gigtune_booking_status', 'REJECTED');
+                        $this->upsertPostMeta($bookingId, 'gigtune_booking_declined_at', $nowTs);
+                        $this->upsertPostMeta($bookingId, 'gigtune_booking_responded_at', $nowMysql);
+                        $this->upsertPostMeta($bookingId, 'gigtune_booking_reject_reason', $rejectReason);
                         $this->upsertPostMeta($bookingId, 'gigtune_booking_last_actor_user_id', (string) $uid);
+                        $this->upsertPostMeta($bookingId, 'gigtune_payment_status', 'UNPAID');
+                        $this->upsertPostMeta($bookingId, 'gigtune_escrow_status', 'UNFUNDED');
                         if ($clientUserId > 0) {
                             $this->createNotification($clientUserId, 'booking', 'Booking #' . $bookingId . ' was declined by the artist.', ['object_type' => 'booking', 'object_id' => $bookingId]);
                         }
                         $statusMessage = 'Booking declined.';
+                    }
+                } elseif ($action === 'report_payment') {
+                    if (!$isClientOwner && !$isAdmin) {
+                        $errorMessage = 'Only the requesting client can submit payment confirmation.';
+                    } elseif ($currentStatus !== 'ACCEPTED_PENDING_PAYMENT') {
+                        $errorMessage = 'Payment report is only available after artist acceptance.';
+                    } elseif ($paymentWindowExpired) {
+                        $errorMessage = 'Payment window expired. Please contact support.';
+                    } elseif (in_array($paymentStatus, ['AWAITING_PAYMENT_CONFIRMATION', 'CONFIRMED_HELD_PENDING_COMPLETION', 'PAID_ESCROWED'], true)) {
+                        $errorMessage = 'Payment already reported for this booking.';
+                    } else {
+                        $method = strtolower(trim((string) $request->input('gigtune_payment_method', '')));
+                        if (!in_array($method, ['payshap', 'eft', 'yoco'], true)) {
+                            $method = 'payshap';
+                        }
+                        $paymentNote = trim((string) $request->input('gigtune_payment_note', ''));
+                        $referenceHuman = $this->bookingPaymentReferenceHuman($bookingId, $clientUserId);
+                        $this->upsertPostMeta($bookingId, 'gigtune_payment_status', 'AWAITING_PAYMENT_CONFIRMATION');
+                        $this->upsertPostMeta($bookingId, 'gigtune_payment_method', $method);
+                        $this->upsertPostMeta($bookingId, 'gigtune_payment_reported_at', $nowTs);
+                        $this->upsertPostMeta($bookingId, 'gigtune_payment_last_note', $paymentNote);
+                        $this->upsertPostMeta($bookingId, 'gigtune_payment_reference_human', $referenceHuman);
+                        if ($artistOwnerId > 0) {
+                            $this->createNotification($artistOwnerId, 'payment', 'Client submitted payment report for booking #' . $bookingId . '. Awaiting admin confirmation.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                        }
+                        foreach ($this->adminUserIds() as $adminUserId) {
+                            $this->createNotification($adminUserId, 'payment', 'Payment report submitted for booking #' . $bookingId . '. Review required.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                        }
+                        $statusMessage = 'Payment report submitted. Awaiting confirmation.';
+                    }
+                } elseif ($action === 'payment_confirm') {
+                    if (!$isAdmin) {
+                        $errorMessage = 'Admin permissions required.';
+                    } elseif (!in_array($paymentStatus, ['AWAITING_PAYMENT_CONFIRMATION', 'UNPAID', 'REJECTED_PAYMENT'], true)) {
+                        $errorMessage = 'Payment is not in a reviewable state.';
+                    } else {
+                        $this->upsertPostMeta($bookingId, 'gigtune_payment_status', 'CONFIRMED_HELD_PENDING_COMPLETION');
+                        $this->upsertPostMeta($bookingId, 'gigtune_payment_confirmed_at', $nowTs);
+                        $this->upsertPostMeta($bookingId, 'gigtune_escrow_status', 'FUNDED');
+                        if ($currentStatus === 'ACCEPTED_PENDING_PAYMENT') {
+                            $this->upsertPostMeta($bookingId, 'gigtune_booking_status', 'PAID_ESCROWED');
+                        }
+                        if ($clientUserId > 0) {
+                            $this->createNotification($clientUserId, 'payment', 'Payment confirmed for booking #' . $bookingId . '.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                        }
+                        if ($artistOwnerId > 0) {
+                            $this->createNotification($artistOwnerId, 'payment', 'Payment confirmed for booking #' . $bookingId . '. You may proceed with performance.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                        }
+                        $statusMessage = 'Payment confirmed.';
+                    }
+                } elseif ($action === 'payment_reject') {
+                    if (!$isAdmin) {
+                        $errorMessage = 'Admin permissions required.';
+                    } elseif (!in_array($paymentStatus, ['AWAITING_PAYMENT_CONFIRMATION', 'UNPAID', 'CONFIRMED_HELD_PENDING_COMPLETION'], true)) {
+                        $errorMessage = 'Payment is not in a rejectable state.';
+                    } else {
+                        $this->upsertPostMeta($bookingId, 'gigtune_payment_status', 'REJECTED_PAYMENT');
+                        $this->upsertPostMeta($bookingId, 'gigtune_payment_last_reviewed_at', $nowTs);
+                        $this->upsertPostMeta($bookingId, 'gigtune_payment_last_reviewed_by', (string) $uid);
+                        if ($clientUserId > 0) {
+                            $this->createNotification($clientUserId, 'payment', 'Payment report for booking #' . $bookingId . ' was rejected. Please re-submit or contact support.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                        }
+                        $statusMessage = 'Payment rejected.';
+                    }
+                } elseif ($action === 'mark_completed') {
+                    if (!$isArtistOwner && !$isAdmin) {
+                        $errorMessage = 'Only the assigned artist can mark this booking completed.';
+                    } elseif ($currentStatus !== 'PAID_ESCROWED') {
+                        $errorMessage = 'Booking can only be marked completed after payment confirmation.';
+                    } elseif (!in_array($paymentStatus, ['CONFIRMED_HELD_PENDING_COMPLETION', 'ESCROW_FUNDED', 'PAID_ESCROWED'], true)) {
+                        $errorMessage = 'Payment must be confirmed before completion.';
+                    } else {
+                        $this->upsertPostMeta($bookingId, 'gigtune_booking_status', 'COMPLETED_BY_ARTIST');
+                        $this->upsertPostMeta($bookingId, 'gigtune_booking_completed_by_artist_at', $nowTs);
+                        if ($clientUserId > 0) {
+                            $this->createNotification($clientUserId, 'booking', 'Artist marked booking #' . $bookingId . ' as completed. Please confirm completion.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                        }
+                        $statusMessage = 'Booking marked completed. Awaiting client confirmation.';
+                    }
+                } elseif ($action === 'confirm_completion') {
+                    if (!$isClientOwner && !$isAdmin) {
+                        $errorMessage = 'Only the requesting client can confirm completion.';
+                    } elseif ($currentStatus !== 'COMPLETED_BY_ARTIST') {
+                        $errorMessage = 'Completion can only be confirmed after the artist marks completed.';
+                    } else {
+                        $this->upsertPostMeta($bookingId, 'gigtune_booking_status', 'COMPLETED_CONFIRMED');
+                        $this->upsertPostMeta($bookingId, 'gigtune_booking_completed_confirmed_at', $nowTs);
+                        if (strtoupper(trim((string) ($bookingMeta['gigtune_payout_status'] ?? ''))) === '') {
+                            $this->upsertPostMeta($bookingId, 'gigtune_payout_status', 'PENDING');
+                        }
+                        if ($artistOwnerId > 0) {
+                            $this->createNotification($artistOwnerId, 'booking', 'Client confirmed completion for booking #' . $bookingId . '.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                        }
+                        foreach ($this->adminUserIds() as $adminUserId) {
+                            $this->createNotification($adminUserId, 'payout', 'Booking #' . $bookingId . ' completed and ready for payout review.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                        }
+                        $statusMessage = 'Completion confirmed.';
                     }
                 } elseif ($action === 'cancel') {
                     if (!$isClientOwner && !$isAdmin) {
@@ -2101,18 +2347,37 @@ class GigTuneShortcodeService
                     } elseif (!in_array($currentStatus, ['REQUESTED', 'ACCEPTED_PENDING_PAYMENT', 'PAID_ESCROWED', 'AWAITING_PAYMENT_CONFIRMATION'], true)) {
                         $errorMessage = 'Booking cannot be cancelled in its current state.';
                     } else {
-                        $ts = (string) now()->timestamp;
                         $this->upsertPostMeta($bookingId, 'gigtune_booking_status', 'CANCELLED_BY_CLIENT');
-                        $this->upsertPostMeta($bookingId, 'gigtune_booking_cancelled_at', $ts);
+                        $this->upsertPostMeta($bookingId, 'gigtune_booking_cancelled_at', $nowTs);
                         $this->upsertPostMeta($bookingId, 'gigtune_booking_last_actor_user_id', (string) $uid);
-                        if (in_array($paymentStatus, ['PAID_ESCROWED', 'PAID', 'AWAITING_PAYMENT_CONFIRMATION', 'REFUNDED_PARTIAL', 'REFUNDED_FULL'], true)) {
+                        if (in_array($paymentStatus, ['PAID_ESCROWED', 'PAID', 'AWAITING_PAYMENT_CONFIRMATION', 'CONFIRMED_HELD_PENDING_COMPLETION', 'REFUNDED_PARTIAL', 'REFUNDED_FULL'], true)) {
                             $this->upsertPostMeta($bookingId, 'gigtune_refund_status', 'REQUESTED');
                             $this->upsertPostMeta($bookingId, 'gigtune_booking_locked', 'refund_pending');
                             $this->upsertPostMeta($bookingId, 'gigtune_refund_requested_by', 'client');
-                            $this->upsertPostMeta($bookingId, 'gigtune_refund_requested_at', $ts);
+                            $this->upsertPostMeta($bookingId, 'gigtune_refund_requested_at', $nowTs);
                         }
                         if ($artistOwnerId > 0) {
                             $this->createNotification($artistOwnerId, 'booking', 'Booking #' . $bookingId . ' was cancelled by the client.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                        }
+                        $statusMessage = 'Booking cancelled.';
+                    }
+                } elseif ($action === 'cancel_artist') {
+                    if (!$isArtistOwner && !$isAdmin) {
+                        $errorMessage = 'Only the assigned artist can cancel this booking.';
+                    } elseif (!in_array($currentStatus, ['REQUESTED', 'ACCEPTED_PENDING_PAYMENT', 'PAID_ESCROWED', 'AWAITING_PAYMENT_CONFIRMATION'], true)) {
+                        $errorMessage = 'Booking cannot be cancelled in its current state.';
+                    } else {
+                        $this->upsertPostMeta($bookingId, 'gigtune_booking_status', 'CANCELLED_BY_ARTIST');
+                        $this->upsertPostMeta($bookingId, 'gigtune_booking_cancelled_at', $nowTs);
+                        $this->upsertPostMeta($bookingId, 'gigtune_booking_last_actor_user_id', (string) $uid);
+                        if (in_array($paymentStatus, ['PAID_ESCROWED', 'PAID', 'AWAITING_PAYMENT_CONFIRMATION', 'CONFIRMED_HELD_PENDING_COMPLETION', 'REFUNDED_PARTIAL', 'REFUNDED_FULL'], true)) {
+                            $this->upsertPostMeta($bookingId, 'gigtune_refund_status', 'REQUESTED');
+                            $this->upsertPostMeta($bookingId, 'gigtune_booking_locked', 'refund_pending');
+                            $this->upsertPostMeta($bookingId, 'gigtune_refund_requested_by', 'artist');
+                            $this->upsertPostMeta($bookingId, 'gigtune_refund_requested_at', $nowTs);
+                        }
+                        if ($clientUserId > 0) {
+                            $this->createNotification($clientUserId, 'booking', 'Booking #' . $bookingId . ' was cancelled by the artist.', ['object_type' => 'booking', 'object_id' => $bookingId]);
                         }
                         $statusMessage = 'Booking cancelled.';
                     }
@@ -2161,12 +2426,16 @@ class GigTuneShortcodeService
                 } elseif ($action === 'request_refund') {
                     if (!$isClientOwner && !$isAdmin) {
                         $errorMessage = 'Only the requesting client can request a refund.';
+                    } elseif (!in_array($paymentStatus, ['PAID_ESCROWED', 'PAID', 'AWAITING_PAYMENT_CONFIRMATION', 'CONFIRMED_HELD_PENDING_COMPLETION', 'REFUNDED_PARTIAL'], true)) {
+                        $errorMessage = 'Refund requests require a paid or held booking.';
                     } else {
-                        $ts = (string) now()->timestamp;
                         $this->upsertPostMeta($bookingId, 'gigtune_refund_status', 'REQUESTED');
                         $this->upsertPostMeta($bookingId, 'gigtune_refund_requested_by', $isAdmin ? 'admin' : 'client');
-                        $this->upsertPostMeta($bookingId, 'gigtune_refund_requested_at', $ts);
+                        $this->upsertPostMeta($bookingId, 'gigtune_refund_requested_at', $nowTs);
                         $this->upsertPostMeta($bookingId, 'gigtune_booking_locked', 'refund_pending');
+                        foreach ($this->adminUserIds() as $adminUserId) {
+                            $this->createNotification($adminUserId, 'refund', 'Refund request submitted for booking #' . $bookingId . '.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                        }
                         $statusMessage = 'Refund request submitted.';
                     }
                 }
@@ -2181,6 +2450,12 @@ class GigTuneShortcodeService
                     'gigtune_booking_location_text',
                     'gigtune_booking_budget',
                     'gigtune_booking_quote_amount',
+                    'gigtune_booking_responded_at',
+                    'gigtune_booking_reject_reason',
+                    'gigtune_payment_method',
+                    'gigtune_payment_reported_at',
+                    'gigtune_payment_window_expires_at',
+                    'gigtune_payment_reference_human',
                 ])[$bookingId] ?? [];
             }
 
@@ -2192,6 +2467,16 @@ class GigTuneShortcodeService
             $eventDate = trim((string) ($bookingMeta['gigtune_booking_event_date'] ?? ''));
             $location = trim((string) ($bookingMeta['gigtune_booking_location_text'] ?? ''));
             $quoteAmount = (int) ($bookingMeta['gigtune_booking_quote_amount'] ?? $bookingMeta['gigtune_booking_budget'] ?? 0);
+            $respondedAt = trim((string) ($bookingMeta['gigtune_booking_responded_at'] ?? ''));
+            $rejectReason = trim((string) ($bookingMeta['gigtune_booking_reject_reason'] ?? ''));
+            $paymentMethod = strtoupper(trim((string) ($bookingMeta['gigtune_payment_method'] ?? '')));
+            $paymentReportedAtTs = (int) ($bookingMeta['gigtune_payment_reported_at'] ?? 0);
+            $paymentWindowExpiresAtTs = (int) ($bookingMeta['gigtune_payment_window_expires_at'] ?? 0);
+            $paymentWindowExpired = $paymentWindowExpiresAtTs > 0 && $paymentWindowExpiresAtTs < time();
+            $paymentReferenceHuman = trim((string) ($bookingMeta['gigtune_payment_reference_human'] ?? ''));
+            if ($paymentReferenceHuman === '') {
+                $paymentReferenceHuman = $this->bookingPaymentReferenceHuman($bookingId, $clientUserId);
+            }
 
             $currentStatusRaw = strtoupper(trim((string) ($bookingMeta['gigtune_booking_status'] ?? '')));
             $paymentStatusRaw = strtoupper(trim((string) ($bookingMeta['gigtune_payment_status'] ?? '')));
@@ -2220,29 +2505,96 @@ class GigTuneShortcodeService
             if ($quoteAmount > 0) {
                 $html .= '<p>Quote: <span class="text-slate-100">ZAR ' . e(number_format($quoteAmount)) . '</span></p>';
             }
+            if ($paymentMethod !== '') {
+                $html .= '<p>Method: <span class="text-slate-100">' . e($paymentMethod) . '</span></p>';
+            }
+            if ($paymentReportedAtTs > 0) {
+                $html .= '<p>Reported at: <span class="text-slate-100">' . e(date('M j, Y H:i', $paymentReportedAtTs)) . '</span></p>';
+            }
+            if ($paymentWindowExpiresAtTs > 0) {
+                $html .= '<p>Payment deadline: <span class="text-slate-100">' . e(date('M j, Y H:i', $paymentWindowExpiresAtTs)) . '</span></p>';
+            }
+            if ($respondedAt !== '') {
+                $html .= '<p>Responded at: <span class="text-slate-100">' . e($respondedAt) . '</span></p>';
+            }
+            if ($rejectReason !== '') {
+                $html .= '<p class="md:col-span-2">Reject reason: <span class="text-slate-100">' . e($rejectReason) . '</span></p>';
+            }
             $html .= '</div>';
 
             $nonce = $this->createWpNonce('gigtune_booking_action');
             $html .= '<div class="mt-4 flex flex-wrap gap-2">';
             if (($isArtistOwner || $isAdmin) && $currentStatusRaw === 'REQUESTED') {
-                $html .= '<form method="post" class="inline-flex">';
+                $html .= '<form method="post" class="w-full space-y-2">';
                 $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="accept">';
-                $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500">Accept request</button></form>';
+                $html .= '<label class="block text-xs text-slate-300">Reject reason (optional)</label>';
+                $html .= '<textarea name="gigtune_booking_reject_reason" rows="2" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-3 py-2 text-xs text-white"></textarea>';
+                $html .= '<div class="flex flex-wrap gap-2">';
+                $html .= '<button type="submit" onclick="this.form.gigtune_booking_action.value=\'accept\'" class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500">Accept request</button>';
+                $html .= '<button type="submit" onclick="this.form.gigtune_booking_action.value=\'decline\'" class="inline-flex items-center justify-center rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-500">Decline request</button>';
+                $html .= '</div></form>';
+            }
+            if (($isClientOwner || $isAdmin) && $currentStatusRaw === 'ACCEPTED_PENDING_PAYMENT') {
+                $html .= '<div class="w-full rounded-xl border border-white/10 bg-black/20 p-4 space-y-3">';
+                $html .= '<p class="text-sm text-slate-200 font-semibold">Client payment panel</p>';
+                if ($quoteAmount > 0) {
+                    $html .= '<p class="text-xs text-slate-300">Total: <span class="text-slate-100">ZAR ' . e(number_format($quoteAmount, 2)) . '</span></p>';
+                }
+                $html .= '<p class="text-xs text-slate-300">Reference: <span class="text-slate-100 font-mono">' . e($paymentReferenceHuman) . '</span></p>';
+                if ($paymentWindowExpiresAtTs > 0) {
+                    $html .= '<p class="text-xs text-slate-300">Payment deadline: <span class="text-slate-100">' . e(date('M j, Y H:i', $paymentWindowExpiresAtTs)) . '</span></p>';
+                }
+                if ($paymentWindowExpired) {
+                    $html .= '<p class="text-xs text-rose-200">Payment window has expired.</p>';
+                } elseif (in_array($paymentStatusRaw, ['AWAITING_PAYMENT_CONFIRMATION', 'CONFIRMED_HELD_PENDING_COMPLETION', 'PAID_ESCROWED'], true)) {
+                    $html .= '<p class="text-xs text-blue-200">Payment already reported: ' . e($this->toSentenceCase($paymentStatusRaw)) . '.</p>';
+                } else {
+                    $html .= '<form method="post" class="space-y-2">';
+                    $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="report_payment">';
+                    $html .= '<div class="grid gap-2 md:grid-cols-2">';
+                    $html .= '<div><label class="block text-xs text-slate-300 mb-1">Payment method</label><select name="gigtune_payment_method" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-3 py-2 text-xs text-white"><option value="payshap">PayShap</option><option value="eft">EFT</option><option value="yoco">YOCO</option></select></div>';
+                    $html .= '<div><label class="block text-xs text-slate-300 mb-1">Reference</label><input type="text" readonly value="' . e($paymentReferenceHuman) . '" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-3 py-2 text-xs text-white"></div>';
+                    $html .= '</div>';
+                    $html .= '<div><label class="block text-xs text-slate-300 mb-1">Payment note (optional)</label><textarea name="gigtune_payment_note" rows="2" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-3 py-2 text-xs text-white"></textarea></div>';
+                    $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-500">Submit payment report</button>';
+                    $html .= '</form>';
+                }
+                $html .= '</div>';
+            }
+            if ($isAdmin && $paymentStatusRaw === 'AWAITING_PAYMENT_CONFIRMATION') {
                 $html .= '<form method="post" class="inline-flex">';
-                $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="decline">';
-                $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-500">Decline request</button></form>';
+                $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="payment_confirm">';
+                $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500">Confirm payment</button></form>';
+                $html .= '<form method="post" class="inline-flex">';
+                $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="payment_reject">';
+                $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-rose-600 px-3 py-2 text-xs font-semibold text-white hover:bg-rose-500">Reject payment</button></form>';
+            }
+            if (($isArtistOwner || $isAdmin) && $currentStatusRaw === 'PAID_ESCROWED') {
+                $html .= '<form method="post" class="inline-flex">';
+                $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="mark_completed">';
+                $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500">Mark completed</button></form>';
+            }
+            if (($isClientOwner || $isAdmin) && $currentStatusRaw === 'COMPLETED_BY_ARTIST') {
+                $html .= '<form method="post" class="inline-flex">';
+                $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="confirm_completion">';
+                $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-3 py-2 text-xs font-semibold text-white hover:bg-emerald-500">Confirm completion</button></form>';
             }
             if (($isClientOwner || $isAdmin) && in_array($currentStatusRaw, ['REQUESTED', 'ACCEPTED_PENDING_PAYMENT', 'PAID_ESCROWED', 'AWAITING_PAYMENT_CONFIRMATION'], true)) {
                 $html .= '<form method="post" class="inline-flex">';
                 $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="cancel">';
                 $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Cancel booking</button></form>';
             }
-            if (($isClientOwner || $isArtistOwner || $isAdmin) && $currentStatusRaw !== 'DISPUTE_OPEN' && $currentStatusRaw !== 'CANCELLED_BY_CLIENT') {
+            if (($isArtistOwner || $isAdmin) && in_array($currentStatusRaw, ['REQUESTED', 'ACCEPTED_PENDING_PAYMENT', 'PAID_ESCROWED', 'AWAITING_PAYMENT_CONFIRMATION'], true)) {
+                $html .= '<form method="post" class="inline-flex">';
+                $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="cancel_artist">';
+                $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Cancel as artist</button></form>';
+            }
+            if (($isClientOwner || $isArtistOwner || $isAdmin) && $currentStatusRaw !== 'DISPUTE_OPEN' && !in_array($currentStatusRaw, ['CANCELLED_BY_CLIENT', 'CANCELLED_BY_ARTIST'], true)) {
                 $html .= '<form method="post" class="inline-flex">';
                 $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="raise_dispute">';
                 $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-500">Open dispute</button></form>';
             }
-            if (($isClientOwner || $isAdmin) && in_array($paymentStatusRaw, ['PAID_ESCROWED', 'PAID', 'REFUNDED_PARTIAL'], true)) {
+            if (($isClientOwner || $isAdmin) && in_array($paymentStatusRaw, ['PAID_ESCROWED', 'PAID', 'CONFIRMED_HELD_PENDING_COMPLETION', 'REFUNDED_PARTIAL'], true)) {
                 $html .= '<form method="post" class="inline-flex">';
                 $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="request_refund">';
                 $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Request refund</button></form>';
@@ -2824,6 +3176,7 @@ class GigTuneShortcodeService
         $heroProfileUrl = '';
         $heroBannerUrl = '';
         $heroSubtitle = $artist ? 'Artist account' : 'Client account';
+        $heroRatingDisplay = '0';
         if ($artist) {
             $artistProfileId = $this->latestUserMetaInt($uid, 'gigtune_artist_profile_id');
             if ($artistProfileId > 0) {
@@ -2831,9 +3184,14 @@ class GigTuneShortcodeService
                     'gigtune_artist_photo_id',
                     'gigtune_artist_banner_id',
                     'gigtune_artist_base_area',
+                    'gigtune_performance_rating_avg',
                 ])[$artistProfileId] ?? [];
                 $heroProfileUrl = $this->attachmentUrl((int) ($artistMeta['gigtune_artist_photo_id'] ?? 0));
                 $heroBannerUrl = $this->attachmentUrl((int) ($artistMeta['gigtune_artist_banner_id'] ?? 0));
+                $heroRating = (float) ($artistMeta['gigtune_performance_rating_avg'] ?? 0);
+                if ($heroRating > 0) {
+                    $heroRatingDisplay = number_format($heroRating, 1);
+                }
                 $baseArea = trim((string) ($artistMeta['gigtune_artist_base_area'] ?? ''));
                 if ($baseArea !== '') {
                     $heroSubtitle = 'Base area: ' . $baseArea;
@@ -2847,11 +3205,43 @@ class GigTuneShortcodeService
                     'gigtune_client_banner_id',
                     'gigtune_client_company',
                     'gigtune_client_base_area',
+                    'gigtune_client_user_id',
                 ])[$clientProfileId] ?? [];
                 $heroProfileUrl = $this->attachmentUrl((int) ($clientMeta['gigtune_client_photo_id'] ?? 0));
                 $heroBannerUrl = $this->attachmentUrl((int) ($clientMeta['gigtune_client_banner_id'] ?? 0));
                 $company = trim((string) ($clientMeta['gigtune_client_company'] ?? ''));
                 $baseArea = trim((string) ($clientMeta['gigtune_client_base_area'] ?? ''));
+                $ratingClientUserId = (int) ($clientMeta['gigtune_client_user_id'] ?? $uid);
+                if ($ratingClientUserId > 0) {
+                    $ratingRows = $this->db()->table($this->posts() . ' as p')
+                        ->where('p.post_type', 'gt_client_rating')
+                        ->where('p.post_status', 'publish')
+                        ->whereExists(function ($q) use ($ratingClientUserId): void {
+                            $q->selectRaw('1')
+                                ->from($this->pm() . ' as pm')
+                                ->whereColumn('pm.post_id', 'p.ID')
+                                ->where('pm.meta_key', 'gigtune_client_rating_client_user_id')
+                                ->where('pm.meta_value', (string) $ratingClientUserId);
+                        })
+                        ->pluck('p.ID')
+                        ->all();
+                    if (is_array($ratingRows) && $ratingRows !== []) {
+                        $ratingIds = array_map(static fn ($value): int => (int) $value, $ratingRows);
+                        $ratingsMeta = $this->postMetaMap($ratingIds, ['gigtune_client_rating_overall_avg']);
+                        $sum = 0.0;
+                        $count = 0;
+                        foreach ($ratingIds as $ratingId) {
+                            $avg = (float) ($ratingsMeta[$ratingId]['gigtune_client_rating_overall_avg'] ?? 0);
+                            if ($avg > 0) {
+                                $sum += $avg;
+                                $count++;
+                            }
+                        }
+                        if ($count > 0) {
+                            $heroRatingDisplay = number_format($sum / $count, 1);
+                        }
+                    }
+                }
                 if ($company !== '' && $baseArea !== '') {
                     $heroSubtitle = $company . ' - ' . $baseArea;
                 } elseif ($company !== '') {
@@ -2889,23 +3279,23 @@ class GigTuneShortcodeService
                 : 'Complete these steps to unlock booking actions';
             $html .= $this->renderMissingRequirementsPanel($requirementsTitle, $missingRequirements);
         }
-        $html .= '<div class="overflow-hidden rounded-2xl border border-white/10 bg-white/5">';
-        if ($heroBannerUrl !== '') {
-            $html .= '<div class="h-40 w-full border-b border-white/10 bg-slate-900/70"><img src="' . e($heroBannerUrl) . '" alt="Profile banner" class="h-full w-full object-cover"></div>';
-        } else {
-            $html .= '<div class="h-40 w-full border-b border-white/10 bg-gradient-to-r from-slate-900 to-slate-800"></div>';
-        }
-        $html .= '<div class="flex flex-wrap items-end gap-4 px-6 pb-6 -mt-12">';
-        $html .= '<div class="h-24 w-24 shrink-0 overflow-hidden rounded-full border-4 border-slate-900 bg-slate-900">';
+        $html .= '<div class="bg-slate-800 rounded-2xl border border-slate-700 overflow-hidden">';
+        $html .= '<div class="h-56 md:h-64 bg-slate-700 relative"' . ($heroBannerUrl !== '' ? (' style="background-image:url(' . e($heroBannerUrl) . ');background-size:cover;background-position:center;"') : '') . '>';
+        $html .= '<div class="w-full h-full bg-gradient-to-t from-slate-900 to-transparent absolute bottom-0 z-10"></div>';
+        $html .= '<div class="absolute inset-0 flex items-center justify-center text-slate-500"><svg class="w-16 h-16 opacity-10" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M22 4 12 14.01l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg></div>';
         if ($heroProfileUrl !== '') {
-            $html .= '<img src="' . e($heroProfileUrl) . '" alt="Profile photo" class="h-full w-full object-cover">';
+            $html .= '<div class="absolute inset-0 flex items-center justify-center z-20"><img src="' . e($heroProfileUrl) . '" alt="' . e((string) ($u['display_name'] ?? $u['login'] ?? $title)) . '" class="w-28 h-28 md:w-32 md:h-32 rounded-full object-cover border border-slate-600 shadow-lg"></div>';
         } else {
-            $html .= '<div class="flex h-full w-full items-center justify-center text-xs text-slate-400">No photo</div>';
+            $html .= '<div class="absolute inset-0 flex items-center justify-center z-20"><div class="w-28 h-28 md:w-32 md:h-32 rounded-full border border-slate-600 bg-slate-900/80 flex items-center justify-center text-slate-300 text-xs">No photo</div></div>';
         }
+        $html .= '<div class="absolute top-4 right-4 z-20"><span class="bg-slate-900/80 backdrop-blur text-white text-xs font-bold px-2 py-1 rounded flex items-center gap-1"><span class="w-3 h-3 text-yellow-400"><svg class="w-3 h-3 text-yellow-400 fill-yellow-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.95 6 6.62.96-4.79 4.67 1.13 6.6L12 17.9l-5.91 3.11 1.13-6.6L2.43 9.46l6.62-.96L12 2.5Z"></path></svg></span>' . e($heroRatingDisplay) . '</span></div>';
         $html .= '</div>';
-        $html .= '<div class="pt-8">';
-        $html .= '<h3 class="text-lg font-semibold text-white">' . e((string) ($u['display_name'] ?? $u['login'] ?? $title)) . '</h3>';
-        $html .= '<p class="mt-1 text-sm text-slate-300">' . e($heroSubtitle) . '</p>';
+        $html .= '<div class="p-6 md:p-8">';
+        $html .= '<div class="flex flex-col md:flex-row md:items-start md:justify-between gap-6">';
+        $html .= '<div class="min-w-0">';
+        $html .= '<div class="flex items-center gap-3 mb-2"><h1 class="text-2xl md:text-3xl lg:text-4xl font-bold text-white">' . e((string) ($u['display_name'] ?? $u['login'] ?? $title)) . '</h1><span class="text-blue-400 w-5 h-5 flex-shrink-0"><svg class="w-5 h-5 text-blue-400" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path><path d="M22 4 12 14.01l-3-3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"></path></svg></span></div>';
+        $html .= '<p class="text-slate-400 text-sm md:text-base">' . e($artist ? 'Artist' : 'Client') . ' <span class="text-slate-600">&bull;</span> ' . e($heroSubtitle) . '</p>';
+        $html .= '</div>';
         $html .= '</div>';
         $html .= '</div>';
         $html .= '</div>';
@@ -3942,6 +4332,240 @@ class GigTuneShortcodeService
         }
 
         return '';
+    }
+
+    private function renderProfileMediaEnhancementsScript(): string
+    {
+        return <<<'HTML'
+<script>
+(function () {
+  if (window.__gtProfileMediaEnhancerBound) {
+    if (window.__gtProfileMediaEnhancerBind) { window.__gtProfileMediaEnhancerBind(); }
+    return;
+  }
+  window.__gtProfileMediaEnhancerBound = true;
+
+  var cropState = {
+    modal: null,
+    cropper: null,
+    input: null,
+    file: null,
+    previewId: '',
+    placeholderId: '',
+    aspectRatio: 1
+  };
+
+  function ensureCropperAssets() {
+    if (!document.querySelector('link[data-gt-cropper-css]')) {
+      var css = document.createElement('link');
+      css.rel = 'stylesheet';
+      css.href = 'https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.css';
+      css.setAttribute('data-gt-cropper-css', '1');
+      document.head.appendChild(css);
+    }
+    if (!window.Cropper && !document.querySelector('script[data-gt-cropper-js]')) {
+      var js = document.createElement('script');
+      js.src = 'https://cdn.jsdelivr.net/npm/cropperjs@1.6.2/dist/cropper.min.js';
+      js.defer = true;
+      js.setAttribute('data-gt-cropper-js', '1');
+      document.head.appendChild(js);
+    }
+  }
+
+  function byId(id) {
+    if (!id) { return null; }
+    return document.getElementById(id);
+  }
+
+  function updatePreview(previewId, placeholderId, src) {
+    var preview = byId(previewId);
+    var placeholder = byId(placeholderId);
+    if (preview) {
+      preview.src = src || '';
+      if (src) {
+        preview.classList.remove('hidden');
+      } else {
+        preview.classList.add('hidden');
+      }
+    }
+    if (placeholder) {
+      if (src) {
+        placeholder.classList.add('hidden');
+      } else {
+        placeholder.classList.remove('hidden');
+      }
+    }
+  }
+
+  function setInputFile(input, file) {
+    if (!input || !file) { return; }
+    var dt = new DataTransfer();
+    dt.items.add(file);
+    input.files = dt.files;
+  }
+
+  function ensureModal() {
+    if (cropState.modal) { return cropState.modal; }
+    var wrapper = document.createElement('div');
+    wrapper.id = 'gt-media-cropper-modal';
+    wrapper.className = 'fixed inset-0 z-[120] hidden items-center justify-center bg-slate-950/80 p-4';
+    wrapper.innerHTML = ''
+      + '<div class="w-full max-w-3xl rounded-2xl border border-white/10 bg-slate-900 p-4 shadow-2xl">'
+      + '  <div class="mb-3 flex items-center justify-between">'
+      + '    <h3 class="text-sm font-semibold text-white">Crop image</h3>'
+      + '    <button type="button" data-role="gt-crop-close" class="rounded-lg bg-white/10 px-3 py-1 text-xs font-semibold text-white hover:bg-white/15">Cancel</button>'
+      + '  </div>'
+      + '  <div class="h-[58vh] overflow-hidden rounded-xl border border-white/10 bg-black">'
+      + '    <img data-role="gt-crop-image" src="" alt="Crop preview" class="block max-h-full w-full object-contain">'
+      + '  </div>'
+      + '  <div class="mt-3 flex justify-end gap-2">'
+      + '    <button type="button" data-role="gt-crop-apply" class="rounded-lg bg-blue-600 px-4 py-2 text-xs font-semibold text-white hover:bg-blue-500">Apply crop</button>'
+      + '  </div>'
+      + '</div>';
+    document.body.appendChild(wrapper);
+    cropState.modal = wrapper;
+
+    var closeBtn = wrapper.querySelector('[data-role="gt-crop-close"]');
+    if (closeBtn) {
+      closeBtn.addEventListener('click', function () {
+        if (cropState.input) {
+          cropState.input.value = '';
+        }
+        closeModal();
+      });
+    }
+
+    var applyBtn = wrapper.querySelector('[data-role="gt-crop-apply"]');
+    if (applyBtn) {
+      applyBtn.addEventListener('click', function () {
+        applyCrop();
+      });
+    }
+
+    return wrapper;
+  }
+
+  function closeModal() {
+    if (cropState.cropper) {
+      cropState.cropper.destroy();
+      cropState.cropper = null;
+    }
+    if (cropState.modal) {
+      cropState.modal.classList.add('hidden');
+      cropState.modal.classList.remove('flex');
+    }
+    cropState.input = null;
+    cropState.file = null;
+    cropState.previewId = '';
+    cropState.placeholderId = '';
+    cropState.aspectRatio = 1;
+  }
+
+  function openCropper(input, file) {
+    var modal = ensureModal();
+    var img = modal.querySelector('[data-role="gt-crop-image"]');
+    if (!img) {
+      updatePreview(input.dataset.gtPreviewId || '', input.dataset.gtPlaceholderId || '', URL.createObjectURL(file));
+      return;
+    }
+
+    cropState.input = input;
+    cropState.file = file;
+    cropState.previewId = input.dataset.gtPreviewId || '';
+    cropState.placeholderId = input.dataset.gtPlaceholderId || '';
+    cropState.aspectRatio = parseFloat(input.dataset.cropRatio || '1');
+    if (!isFinite(cropState.aspectRatio) || cropState.aspectRatio <= 0) {
+      cropState.aspectRatio = 1;
+    }
+
+    var objectUrl = URL.createObjectURL(file);
+    img.src = objectUrl;
+    modal.classList.remove('hidden');
+    modal.classList.add('flex');
+
+    img.onload = function () {
+      if (!window.Cropper) {
+        updatePreview(cropState.previewId, cropState.placeholderId, objectUrl);
+        return;
+      }
+      if (cropState.cropper) {
+        cropState.cropper.destroy();
+      }
+      cropState.cropper = new Cropper(img, {
+        aspectRatio: cropState.aspectRatio,
+        viewMode: 1,
+        autoCropArea: 1,
+        background: false,
+        responsive: true
+      });
+    };
+  }
+
+  function applyCrop() {
+    if (!cropState.input || !cropState.file) {
+      closeModal();
+      return;
+    }
+    if (!cropState.cropper) {
+      var rawUrl = URL.createObjectURL(cropState.file);
+      updatePreview(cropState.previewId, cropState.placeholderId, rawUrl);
+      closeModal();
+      return;
+    }
+
+    var mime = cropState.file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+    var canvas = cropState.cropper.getCroppedCanvas({
+      maxWidth: 2400,
+      maxHeight: 2400,
+      fillColor: '#0f172a'
+    });
+    if (!canvas) {
+      closeModal();
+      return;
+    }
+
+    canvas.toBlob(function (blob) {
+      if (!blob || !cropState.input) {
+        closeModal();
+        return;
+      }
+      var name = (cropState.file.name || 'image').replace(/\.[^.]+$/, '');
+      var ext = mime === 'image/png' ? 'png' : 'jpg';
+      var croppedFile = new File([blob], name + '-crop.' + ext, { type: mime });
+      setInputFile(cropState.input, croppedFile);
+      var previewUrl = URL.createObjectURL(croppedFile);
+      updatePreview(cropState.previewId, cropState.placeholderId, previewUrl);
+      closeModal();
+    }, mime, 0.95);
+  }
+
+  function bindInput(input) {
+    if (!input || input.dataset.gtBound === '1') { return; }
+    input.dataset.gtBound = '1';
+    input.addEventListener('change', function () {
+      var file = input.files && input.files[0] ? input.files[0] : null;
+      if (!file) { return; }
+      ensureCropperAssets();
+      openCropper(input, file);
+    });
+  }
+
+  function bindAll() {
+    var inputs = document.querySelectorAll('input[type="file"][data-gt-preview-id]');
+    for (var i = 0; i < inputs.length; i++) {
+      bindInput(inputs[i]);
+    }
+  }
+
+  window.__gtProfileMediaEnhancerBind = bindAll;
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindAll);
+  } else {
+    bindAll();
+  }
+})();
+</script>
+HTML;
     }
 
     private function bool(mixed $v): bool
@@ -5046,6 +5670,42 @@ class GigTuneShortcodeService
         }
         $title = trim((string) $this->db()->table($this->posts())->where('ID', $profileId)->where('post_type', 'artist_profile')->value('post_title'));
         return $title !== '' ? $title : ('Artist #' . $profileId);
+    }
+
+    /** @return array<int> */
+    private function adminUserIds(): array
+    {
+        $rows = $this->db()->table($this->um())
+            ->where('meta_key', 'like', '%capabilities')
+            ->where('meta_value', 'like', '%administrator%')
+            ->pluck('user_id')
+            ->all();
+        $ids = [];
+        if (is_array($rows)) {
+            foreach ($rows as $row) {
+                $id = (int) $row;
+                if ($id > 0) {
+                    $ids[$id] = $id;
+                }
+            }
+        }
+        return array_values($ids);
+    }
+
+    private function bookingPaymentReferenceHuman(int $bookingId, int $clientUserId): string
+    {
+        $bookingId = abs($bookingId);
+        if ($bookingId <= 0) {
+            return '';
+        }
+        $existing = trim($this->getLatestPostMeta($bookingId, 'gigtune_payment_reference_human'));
+        if ($existing !== '') {
+            return $existing;
+        }
+        $clientCode = 'GT-C-' . str_pad((string) max(0, $clientUserId), 6, '0', STR_PAD_LEFT);
+        $reference = 'GT-B-' . $bookingId . ' | ' . $clientCode;
+        $this->upsertPostMeta($bookingId, 'gigtune_payment_reference_human', $reference);
+        return $reference;
     }
 
     private function createWpNonce(string $action): string

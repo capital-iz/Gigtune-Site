@@ -100,6 +100,7 @@ Route::middleware(['gigtune.auth', 'gigtune.admin'])->group(function (): void {
     Route::post('/admin-dashboard/refunds/review', [AdminPortalController::class, 'reviewRefund']);
     Route::post('/admin-dashboard/kyc/review', [AdminPortalController::class, 'reviewKyc']);
     Route::post('/admin-dashboard/kyc/purge-deleted', [AdminPortalController::class, 'purgeDeletedKycSubmission']);
+    Route::post('/admin-dashboard/site-maintenance', [AdminPortalController::class, 'toggleSiteMaintenance']);
     Route::get('/admin-dashboard/kyc/documents/{submission}/{doc}/{mode}', [AdminPortalController::class, 'kycDocument'])
         ->whereNumber('submission')
         ->where('doc', '[A-Za-z0-9_-]+')

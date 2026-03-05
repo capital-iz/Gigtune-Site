@@ -11,6 +11,8 @@ return Application::configure(basePath: dirname(__DIR__))
         health: '/up',
     )
     ->withMiddleware(function (Middleware $middleware): void {
+        $middleware->append(\App\Http\Middleware\EnforceGigTuneSiteMaintenance::class);
+
         $middleware->alias([
             'gigtune.auth' => \App\Http\Middleware\EnsureGigTuneAuthenticated::class,
             'gigtune.admin' => \App\Http\Middleware\EnsureGigTuneAdmin::class,

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Services\GigTuneMailService;
+use App\Services\GigTuneSiteMaintenanceService;
 use App\Services\WordPressUserService;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Http\RedirectResponse;
@@ -15,6 +16,7 @@ class AdminPortalController extends Controller
     public function __construct(
         private readonly WordPressUserService $users,
         private readonly GigTuneMailService $mail,
+        private readonly GigTuneSiteMaintenanceService $siteMaintenance,
     ) {
     }
 
@@ -80,6 +82,7 @@ class AdminPortalController extends Controller
             'metrics' => $this->loadMetrics(),
             'activeTab' => $activeTab,
             'tabData' => $this->loadDashboardTabData($activeTab, $request),
+            'siteMaintenanceEnabled' => $this->siteMaintenance->isEnabled(),
         ]);
     }
 
@@ -189,6 +192,25 @@ class AdminPortalController extends Controller
     public function maintenance(): View
     {
         return view('admin.maintenance');
+    }
+
+    public function toggleSiteMaintenance(Request $request): RedirectResponse
+    {
+        $payload = $request->validate([
+            'enabled' => ['required', 'boolean'],
+        ]);
+
+        $enabled = (bool) $payload['enabled'];
+        try {
+            $this->siteMaintenance->setEnabled($enabled);
+        } catch (\Throwable) {
+            return $this->redirectWithAdminFlash('overview', '', 'site_maintenance_toggle_failed');
+        }
+
+        return $this->redirectWithAdminFlash(
+            'overview',
+            $enabled ? 'site_maintenance_enabled' : 'site_maintenance_disabled'
+        );
     }
 
     public function factoryReset(Request $request): RedirectResponse

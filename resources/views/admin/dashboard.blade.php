@@ -968,6 +968,24 @@
                     <a href="/gts-admin-users" class="text-blue-300 hover:text-blue-200">Open Users</a>
                     <a href="/admin/maintenance" class="text-blue-300 hover:text-blue-200">Open Admin Maintenance</a>
                 </div>
+                <div class="mt-5 rounded-xl border border-white/10 bg-black/20 p-4">
+                    <div class="flex items-center justify-between gap-2">
+                        <div class="text-sm font-semibold text-white">Site Maintenance Mode</div>
+                        <span class="inline-flex items-center rounded-full border px-2 py-1 text-xs font-semibold {{ !empty($siteMaintenanceEnabled) ? 'border-amber-400/40 bg-amber-500/15 text-amber-200' : 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200' }}">
+                            {{ !empty($siteMaintenanceEnabled) ? 'Enabled' : 'Disabled' }}
+                        </span>
+                    </div>
+                    <p class="mt-2 text-xs text-slate-300">
+                        When enabled, all non-admin pages are replaced by a maintenance message.
+                    </p>
+                    <form method="post" action="/admin-dashboard/site-maintenance" class="mt-3">
+                        @csrf
+                        <input type="hidden" name="enabled" value="{{ !empty($siteMaintenanceEnabled) ? '0' : '1' }}">
+                        <button type="submit" class="inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-semibold text-white {{ !empty($siteMaintenanceEnabled) ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-amber-600 hover:bg-amber-500' }}">
+                            {{ !empty($siteMaintenanceEnabled) ? 'Disable Maintenance Mode' : 'Enable Maintenance Mode' }}
+                        </button>
+                    </form>
+                </div>
             </div>
         </div>
     </div>

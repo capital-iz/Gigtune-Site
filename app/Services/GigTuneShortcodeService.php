@@ -5,6 +5,7 @@ namespace App\Services;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Http;
 
 class GigTuneShortcodeService
 {
@@ -2189,6 +2190,7 @@ class GigTuneShortcodeService
 
             $statusMessage = '';
             $errorMessage = '';
+            $redirectToYoco = '';
             if (
                 $request !== null
                 && strtoupper((string) $request->method()) === 'POST'
@@ -2244,34 +2246,51 @@ class GigTuneShortcodeService
                         }
                         $statusMessage = 'Booking declined.';
                     }
-                } elseif ($action === 'report_payment') {
+                } elseif ($action === 'pay_yoco') {
                     if (!$isClientOwner && !$isAdmin) {
-                        $errorMessage = 'Only the requesting client can submit payment confirmation.';
+                        $errorMessage = 'Only the requesting client can initiate card checkout.';
                     } elseif ($currentStatus !== 'ACCEPTED_PENDING_PAYMENT') {
-                        $errorMessage = 'Payment report is only available after artist acceptance.';
+                        $errorMessage = 'Booking is not in a payable state.';
                     } elseif ($paymentWindowExpired) {
+                        $this->upsertPostMeta($bookingId, 'gigtune_booking_status', 'PAYMENT_TIMEOUT');
+                        $this->upsertPostMeta($bookingId, 'gigtune_payment_status', 'FAILED');
+                        $this->upsertPostMeta($bookingId, 'gigtune_payment_last_note', 'Payment window expired.');
                         $errorMessage = 'Payment window expired. Please contact support.';
-                    } elseif (in_array($paymentStatus, ['AWAITING_PAYMENT_CONFIRMATION', 'CONFIRMED_HELD_PENDING_COMPLETION', 'PAID_ESCROWED'], true)) {
-                        $errorMessage = 'Payment already reported for this booking.';
+                    } elseif (in_array($paymentStatus, ['AWAITING_PAYMENT_CONFIRMATION', 'CONFIRMED_HELD_PENDING_COMPLETION', 'PAID_ESCROWED', 'ESCROW_FUNDED'], true)) {
+                        $errorMessage = 'Payment has already been submitted or confirmed.';
                     } else {
-                        $method = strtolower(trim((string) $request->input('gigtune_payment_method', '')));
-                        if (!in_array($method, ['payshap', 'eft', 'yoco'], true)) {
-                            $method = 'payshap';
-                        }
-                        $paymentNote = trim((string) $request->input('gigtune_payment_note', ''));
                         $referenceHuman = $this->bookingPaymentReferenceHuman($bookingId, $clientUserId);
-                        $this->upsertPostMeta($bookingId, 'gigtune_payment_status', 'AWAITING_PAYMENT_CONFIRMATION');
-                        $this->upsertPostMeta($bookingId, 'gigtune_payment_method', $method);
-                        $this->upsertPostMeta($bookingId, 'gigtune_payment_reported_at', $nowTs);
-                        $this->upsertPostMeta($bookingId, 'gigtune_payment_last_note', $paymentNote);
-                        $this->upsertPostMeta($bookingId, 'gigtune_payment_reference_human', $referenceHuman);
-                        if ($artistOwnerId > 0) {
-                            $this->createNotification($artistOwnerId, 'payment', 'Client submitted payment report for booking #' . $bookingId . '. Awaiting admin confirmation.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                        $amountCents = $this->bookingYocoAmountCents($bookingId);
+                        if ($amountCents <= 0) {
+                            $safeError = 'Invalid amount.';
+                            $this->upsertPostMeta($bookingId, 'gigtune_yoco_last_error', $safeError);
+                            $errorMessage = $safeError;
+                        } else {
+                            $checkout = $this->createYocoCheckout($bookingId, $amountCents);
+                            if (isset($checkout['error'])) {
+                                $safeError = trim((string) $checkout['error']);
+                                if ($safeError === '') {
+                                    $safeError = 'Card checkout is currently unavailable.';
+                                }
+                                $this->upsertPostMeta($bookingId, 'gigtune_yoco_last_error', $safeError);
+                                $errorMessage = $safeError;
+                            } else {
+                                $checkoutId = trim((string) ($checkout['checkout_id'] ?? ''));
+                                $redirectUrl = trim((string) ($checkout['redirect_url'] ?? ''));
+                                if ($checkoutId === '' || $redirectUrl === '') {
+                                    $this->upsertPostMeta($bookingId, 'gigtune_yoco_last_error', 'Invalid checkout response.');
+                                    $errorMessage = 'Card checkout is currently unavailable.';
+                                } else {
+                                    $this->upsertPostMeta($bookingId, 'gigtune_payment_method', 'yoco');
+                                    $this->upsertPostMeta($bookingId, 'gigtune_payment_reference_human', $referenceHuman);
+                                    $this->upsertPostMeta($bookingId, 'gigtune_yoco_checkout_id', $checkoutId);
+                                    $this->upsertPostMeta($bookingId, 'gigtune_yoco_redirect_url', $redirectUrl);
+                                    $this->upsertPostMeta($bookingId, 'gigtune_yoco_last_error', '');
+                                    $redirectToYoco = $redirectUrl;
+                                    $statusMessage = 'Redirecting to secure card checkout.';
+                                }
+                            }
                         }
-                        foreach ($this->adminUserIds() as $adminUserId) {
-                            $this->createNotification($adminUserId, 'payment', 'Payment report submitted for booking #' . $bookingId . '. Review required.', ['object_type' => 'booking', 'object_id' => $bookingId]);
-                        }
-                        $statusMessage = 'Payment report submitted. Awaiting confirmation.';
                     }
                 } elseif ($action === 'payment_confirm') {
                     if (!$isAdmin) {
@@ -2480,6 +2499,7 @@ class GigTuneShortcodeService
 
             $currentStatusRaw = strtoupper(trim((string) ($bookingMeta['gigtune_booking_status'] ?? '')));
             $paymentStatusRaw = strtoupper(trim((string) ($bookingMeta['gigtune_payment_status'] ?? '')));
+            $yocoError = trim((string) ($request?->query('yoco_error', '') ?? ''));
 
             $html = '<div class="space-y-4">';
             if ($statusMessage !== '') {
@@ -2487,6 +2507,15 @@ class GigTuneShortcodeService
             }
             if ($errorMessage !== '') {
                 $html .= '<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">' . e($errorMessage) . '</div>';
+            }
+            if ($redirectToYoco !== '') {
+                $redirectJson = json_encode($redirectToYoco, JSON_UNESCAPED_SLASHES);
+                if (!is_string($redirectJson)) {
+                    $redirectJson = '"/"';
+                }
+                $html .= '<script>(function(){var u=' . $redirectJson . ';if(u){window.location.assign(u);}})();</script>';
+                $html .= '<div class="rounded-xl border border-sky-500/30 bg-sky-500/10 px-4 py-3 text-sm text-sky-100">Redirecting to secure card checkout. If you are not redirected, <a class="underline" href="' . e($redirectToYoco) . '">continue to payment</a>.</div>';
+                return $html . '</div>';
             }
 
             $html .= '<div class="rounded-xl border border-white/10 bg-white/5 p-4">';
@@ -2536,7 +2565,7 @@ class GigTuneShortcodeService
             }
             if (($isClientOwner || $isAdmin) && $currentStatusRaw === 'ACCEPTED_PENDING_PAYMENT') {
                 $html .= '<div class="w-full rounded-xl border border-white/10 bg-black/20 p-4 space-y-3">';
-                $html .= '<p class="text-sm text-slate-200 font-semibold">Client payment panel</p>';
+                $html .= '<p class="text-sm text-slate-200 font-semibold">Pay by card (YOCO)</p>';
                 if ($quoteAmount > 0) {
                     $html .= '<p class="text-xs text-slate-300">Total: <span class="text-slate-100">ZAR ' . e(number_format($quoteAmount, 2)) . '</span></p>';
                 }
@@ -2546,17 +2575,23 @@ class GigTuneShortcodeService
                 }
                 if ($paymentWindowExpired) {
                     $html .= '<p class="text-xs text-rose-200">Payment window has expired.</p>';
+                } elseif ($yocoError === '1') {
+                    $html .= '<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3">';
+                    $html .= '<p class="text-rose-200 text-xs font-semibold">Card checkout failed. Please try again.</p>';
+                    if ($isAdmin) {
+                        $yocoLastError = trim((string) ($bookingMeta['gigtune_yoco_last_error'] ?? $this->getLatestPostMeta($bookingId, 'gigtune_yoco_last_error')));
+                        if ($yocoLastError !== '') {
+                            $html .= '<p class="text-slate-300 text-xs mt-2">Admin debug: ' . e($yocoLastError) . '</p>';
+                        }
+                    }
+                    $html .= '</div>';
                 } elseif (in_array($paymentStatusRaw, ['AWAITING_PAYMENT_CONFIRMATION', 'CONFIRMED_HELD_PENDING_COMPLETION', 'PAID_ESCROWED'], true)) {
                     $html .= '<p class="text-xs text-blue-200">Payment already reported: ' . e($this->toSentenceCase($paymentStatusRaw)) . '.</p>';
                 } else {
                     $html .= '<form method="post" class="space-y-2">';
-                    $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="report_payment">';
-                    $html .= '<div class="grid gap-2 md:grid-cols-2">';
-                    $html .= '<div><label class="block text-xs text-slate-300 mb-1">Payment method</label><select name="gigtune_payment_method" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-3 py-2 text-xs text-white"><option value="payshap">PayShap</option><option value="eft">EFT</option><option value="yoco">YOCO</option></select></div>';
-                    $html .= '<div><label class="block text-xs text-slate-300 mb-1">Reference</label><input type="text" readonly value="' . e($paymentReferenceHuman) . '" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-3 py-2 text-xs text-white"></div>';
-                    $html .= '</div>';
-                    $html .= '<div><label class="block text-xs text-slate-300 mb-1">Payment note (optional)</label><textarea name="gigtune_payment_note" rows="2" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-3 py-2 text-xs text-white"></textarea></div>';
-                    $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-3 py-2 text-xs font-semibold text-white hover:bg-indigo-500">Submit payment report</button>';
+                    $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="pay_yoco">';
+                    $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-sky-600 px-3 py-2 text-xs font-semibold text-white hover:bg-sky-500">Pay with Card (YOCO)</button>';
+                    $html .= '<p class="text-xs text-slate-300">Secure checkout hosted by YOCO.</p>';
                     $html .= '</form>';
                 }
                 $html .= '</div>';
@@ -5706,6 +5741,165 @@ HTML;
         $reference = 'GT-B-' . $bookingId . ' | ' . $clientCode;
         $this->upsertPostMeta($bookingId, 'gigtune_payment_reference_human', $reference);
         return $reference;
+    }
+
+    private function bookingYocoAmountCents(int $bookingId): int
+    {
+        $bookingId = abs($bookingId);
+        if ($bookingId <= 0) {
+            return 0;
+        }
+
+        $meta = $this->postMetaMap([$bookingId], [
+            'gigtune_booking_budget',
+            'gigtune_booking_quote_amount',
+            'gigtune_booking_travel_amount',
+            'gigtune_booking_requires_accommodation',
+            'gigtune_booking_client_offers_accommodation',
+            'gigtune_booking_artist_profile_id',
+            'gigtune_booking_cost_breakdown',
+        ])[$bookingId] ?? [];
+
+        $breakdownRaw = trim((string) ($meta['gigtune_booking_cost_breakdown'] ?? ''));
+        $decodedBreakdown = $breakdownRaw !== '' ? $this->maybe($breakdownRaw) : null;
+        if (is_array($decodedBreakdown)) {
+            $existingTotal = (float) ($decodedBreakdown['total_amount'] ?? 0);
+            if ($existingTotal > 0) {
+                return max(0, (int) round($existingTotal * 100));
+            }
+        }
+
+        $budget = (float) ($meta['gigtune_booking_budget'] ?? 0);
+        if ($budget <= 0) {
+            $budget = (float) ($meta['gigtune_booking_quote_amount'] ?? 0);
+        }
+        if ($budget <= 0) {
+            return 0;
+        }
+
+        $travelFee = max(0.0, (float) ($meta['gigtune_booking_travel_amount'] ?? 0));
+        $requiresAccommodation = (string) ($meta['gigtune_booking_requires_accommodation'] ?? '') === '1';
+        $clientOffersAccommodation = (string) ($meta['gigtune_booking_client_offers_accommodation'] ?? '') === '1';
+        $accommodationFee = 0.0;
+
+        if ($requiresAccommodation && !$clientOffersAccommodation) {
+            $artistProfileId = (int) ($meta['gigtune_booking_artist_profile_id'] ?? 0);
+            if ($artistProfileId > 0) {
+                $artistMeta = $this->postMetaMap([$artistProfileId], ['gigtune_artist_accom_fee_flat'])[$artistProfileId] ?? [];
+                $accommodationFee = max(0.0, (float) ($artistMeta['gigtune_artist_accom_fee_flat'] ?? 0));
+            }
+        }
+
+        $serviceFeeRate = 0.10;
+        $serviceFee = round(($budget + $travelFee + $accommodationFee) * $serviceFeeRate, 2);
+        $total = round($budget + $travelFee + $accommodationFee + $serviceFee, 2);
+        if ($total <= 0) {
+            return max(0, (int) round($budget * 100));
+        }
+
+        return max(0, (int) round($total * 100));
+    }
+
+    /** @return array{checkout_id?: string, redirect_url?: string, error?: string} */
+    private function createYocoCheckout(int $bookingId, int $amountCents): array
+    {
+        $bookingId = abs($bookingId);
+        $amountCents = max(0, $amountCents);
+        if ($bookingId <= 0 || $amountCents <= 0) {
+            return ['error' => 'Invalid payment request.'];
+        }
+
+        $secretKey = $this->yocoSecretKey();
+        if ($secretKey === '') {
+            return ['error' => 'Card checkout is currently unavailable.'];
+        }
+
+        $payload = [
+            'amount' => $amountCents,
+            'currency' => 'ZAR',
+            'successUrl' => $this->yocoSuccessUrl($bookingId),
+            'cancelUrl' => $this->yocoCancelUrl($bookingId),
+            'metadata' => [
+                'booking_id' => (string) $bookingId,
+                'environment' => 'gigtune_' . $this->yocoMode(),
+            ],
+        ];
+
+        try {
+            $response = Http::timeout(30)
+                ->withHeaders([
+                    'Authorization' => 'Bearer ' . $secretKey,
+                    'Content-Type' => 'application/json',
+                ])
+                ->post('https://payments.yoco.com/api/checkouts', $payload);
+        } catch (\Throwable) {
+            return ['error' => 'Card checkout is currently unavailable.'];
+        }
+
+        $body = $response->json();
+        if (!$response->successful() || !is_array($body)) {
+            $code = $response->status();
+            $prefix = $code > 0 ? ('HTTP ' . $code . ': ') : '';
+            return ['error' => $prefix . 'Card checkout is currently unavailable.'];
+        }
+
+        $checkoutId = trim((string) ($body['id'] ?? ''));
+        $redirectUrl = trim((string) ($body['redirectUrl'] ?? $body['redirect_url'] ?? ''));
+        if ($redirectUrl !== '' && !filter_var($redirectUrl, FILTER_VALIDATE_URL)) {
+            $redirectUrl = '';
+        }
+
+        if ($checkoutId === '' || $redirectUrl === '') {
+            return ['error' => 'Invalid checkout response.'];
+        }
+
+        return [
+            'checkout_id' => $checkoutId,
+            'redirect_url' => $redirectUrl,
+        ];
+    }
+
+    private function yocoMode(): string
+    {
+        $mode = strtolower(trim((string) config('gigtune.payments.yoco.mode', 'test')));
+        return $mode === 'live' ? 'live' : 'test';
+    }
+
+    private function yocoSecretKey(): string
+    {
+        if ($this->yocoMode() === 'live') {
+            return trim((string) config('gigtune.payments.yoco.live_secret_key', ''));
+        }
+        return trim((string) config('gigtune.payments.yoco.test_secret_key', ''));
+    }
+
+    private function yocoSuccessUrl(int $bookingId): string
+    {
+        return $this->yocoBaseUrl() . '/yoco-success/?booking_id=' . max(0, $bookingId);
+    }
+
+    private function yocoCancelUrl(int $bookingId): string
+    {
+        return $this->yocoBaseUrl() . '/yoco-cancel/?booking_id=' . max(0, $bookingId);
+    }
+
+    private function yocoBaseUrl(): string
+    {
+        $appUrl = trim((string) config('app.url', ''));
+        if ($appUrl !== '') {
+            return rtrim($appUrl, '/');
+        }
+
+        try {
+            $request = request();
+            if ($request !== null) {
+                return rtrim((string) $request->getSchemeAndHttpHost(), '/');
+            }
+        } catch (\Throwable) {
+            // Fallback below.
+        }
+
+        return rtrim((string) url('/'), '/');
     }
 
     private function createWpNonce(string $action): string

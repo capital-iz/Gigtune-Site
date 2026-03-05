@@ -232,7 +232,7 @@
       <div class="flex flex-wrap justify-center gap-x-8 gap-y-6 md:gap-16 items-center opacity-60">
         <div class="flex items-center gap-2 text-slate-300 font-bold text-lg md:text-2xl"><span class="text-white">💳</span> VISA</div>
         <div class="flex items-center gap-2 text-slate-300 font-bold text-lg md:text-2xl"><span class="text-white">💳</span> mastercard</div>
-        <div class="flex items-center gap-2 text-slate-300 font-bold text-lg md:text-2xl"><span class="text-yellow-500">⚡</span> Instant EFT</div>
+        <div class="flex items-center gap-2 text-slate-300 font-bold text-lg md:text-2xl"><span class="text-yellow-500">⚡</span> Card Checkout (YOCO)</div>
         <div class="flex items-center gap-2 text-slate-300 font-bold text-lg md:text-2xl"><span class="text-blue-400">▦</span> SnapScan</div>
       </div>
     </div>

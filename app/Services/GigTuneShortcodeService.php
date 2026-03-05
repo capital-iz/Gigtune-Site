@@ -6271,10 +6271,36 @@ HTML;
         }
 
         $body = $response->json();
-        if (!$response->successful() || !is_array($body)) {
+        if (!$response->successful()) {
             $code = $response->status();
             $prefix = $code > 0 ? ('HTTP ' . $code . ': ') : '';
-            return ['error' => $prefix . 'Card checkout is currently unavailable.'];
+            $apiMessage = '';
+            if (is_array($body)) {
+                $apiMessage = trim((string) ($body['message'] ?? $body['error'] ?? ''));
+                if ($apiMessage === '' && isset($body['errors']) && is_array($body['errors']) && isset($body['errors'][0]) && is_array($body['errors'][0])) {
+                    $apiMessage = trim((string) ($body['errors'][0]['message'] ?? ''));
+                }
+            }
+            if ($apiMessage === '') {
+                $rawBody = trim((string) $response->body());
+                if ($rawBody !== '') {
+                    $apiMessage = substr($rawBody, 0, 240);
+                }
+            }
+
+            logger()->warning('YOCO checkout create failed', [
+                'status' => $code,
+                'response' => is_array($body) ? $body : substr((string) $response->body(), 0, 400),
+                'booking_id' => $bookingId,
+                'amount_cents' => $amountCents,
+                'mode' => $this->yocoMode(),
+            ]);
+
+            return ['error' => $prefix . ($apiMessage !== '' ? $apiMessage : 'Card checkout is currently unavailable.')];
+        }
+
+        if (!is_array($body)) {
+            return ['error' => 'Invalid checkout response.'];
         }
 
         $checkoutId = trim((string) ($body['id'] ?? ''));

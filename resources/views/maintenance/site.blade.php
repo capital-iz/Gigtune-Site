@@ -34,12 +34,8 @@
                 <span class="inline-flex items-center rounded-xl border border-white/15 bg-white/10 px-4 py-2 text-xs font-semibold text-slate-100 md:text-sm">
                     Maintenance Mode Active
                 </span>
-                <span class="inline-flex items-center rounded-xl border border-emerald-400/30 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-200 md:text-sm">
-                    Admin Portal Remains Available
-                </span>
             </div>
         </section>
     </main>
 </body>
 </html>
-

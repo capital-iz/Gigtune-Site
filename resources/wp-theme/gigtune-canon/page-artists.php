@@ -39,12 +39,6 @@ function gigtune_svg_icon($name, $class = 'w-5 h-5') {
         <path d="M12 2.5l2.95 6 6.62.96-4.79 4.67 1.13 6.6L12 17.9l-5.91 3.11 1.13-6.6L2.43 9.46l6.62-.96L12 2.5Z"/>
       </svg>';
 
-    case 'dollar':
-      return '<svg class="'.$class_attr.'" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-        <path d="M12 1v22" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
-        <path d="M17 5.5c0-2-2.24-3.5-5-3.5S7 3.5 7 5.5 9.24 9 12 9s5 1.5 5 3.5S14.76 16 12 16s-5 1.5-5 3.5S9.24 23 12 23s5-1.5 5-3.5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
-      </svg>';
-
     case 'checkcircle':
       return '<svg class="'.$class_attr.'" viewBox="0 0 24 24" fill="none" aria-hidden="true">
         <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
@@ -781,9 +775,6 @@ if ($sort_by !== '' && $sort_dir !== '') {
               <?php if ($price !== '') : ?>
                 <div class="flex items-center justify-between text-sm text-slate-300 mb-6">
                   <span class="flex items-center gap-1">
-                    <span class="w-[14px] h-[14px]">
-                      <?php echo gigtune_svg_icon('dollar', 'w-[14px] h-[14px]'); ?>
-                    </span>
                     <?php echo esc_html($price); ?>
                   </span>
                 </div>
@@ -855,9 +846,6 @@ if ($sort_by !== '' && $sort_dir !== '') {
 
             <div class="flex items-center justify-between text-sm text-slate-300 mb-6">
               <span class="flex items-center gap-1">
-                <span class="w-[14px] h-[14px]">
-                  <?php echo gigtune_svg_icon('dollar', 'w-[14px] h-[14px]'); ?>
-                </span>
                 <?php echo esc_html($artist['priceRange']); ?>
               </span>
             </div>

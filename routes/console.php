@@ -1925,8 +1925,9 @@ Artisan::command('gigtune:flow-dry-run {--cycles=1}', function () {
             }
 
             $respHome = $requestWithSession('GET', '/', [], $session);
-            $homeRedirectOk = $respHome['status'] === 302 && str_contains($respHome['location'], '/admin-dashboard');
-            $check('admin_home_redirect', $homeRedirectOk, 'status=' . $respHome['status'] . ' location=' . $respHome['location']);
+            $homeAccessOk = $respHome['status'] === 200
+                || ($respHome['status'] === 302 && str_contains($respHome['location'], '/admin-dashboard'));
+            $check('admin_home_access', $homeAccessOk, 'status=' . $respHome['status'] . ' location=' . $respHome['location']);
 
             $respArtists = $requestWithSession('GET', '/artists/', [], $session);
             $hasArtistProfileLink = preg_match('/artist-profile\\/\\?artist_id=/', $respArtists['content']) === 1;

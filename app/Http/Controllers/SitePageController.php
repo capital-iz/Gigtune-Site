@@ -37,10 +37,6 @@ class SitePageController extends Controller
         $slug = $normalizedPath === '' ? '' : basename($normalizedPath);
         $currentUser = $this->resolveCurrentUser($request);
 
-        if ($slug === '' && is_array($currentUser) && (bool) ($currentUser['is_admin'] ?? false)) {
-            return redirect('/admin-dashboard/', 302);
-        }
-
         if ($slug === 'logout' || $slug === 'sign-out') {
             $this->logoutSession($request);
             $redirectTo = $this->safeRedirectPath((string) $request->query('redirect_to', '/'), '/');

@@ -15,7 +15,10 @@ $dashboard_label = 'Dashboard';
 if ($is_logged_in && $current_user instanceof WP_User) {
   $roles = (array) $current_user->roles;
 
-  if (in_array('gigtune_artist', $roles, true)) {
+  if (in_array('administrator', $roles, true)) {
+    $dashboard_url   = home_url('/admin-dashboard/');
+    $dashboard_label = 'Admin Dashboard';
+  } elseif (in_array('gigtune_artist', $roles, true)) {
     $dashboard_url   = home_url('/artist-dashboard/');
     $dashboard_label = 'Artist Dashboard';
   } elseif (in_array('gigtune_client', $roles, true)) {

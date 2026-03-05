@@ -1105,24 +1105,75 @@ class AdminPortalController extends Controller
         }
 
         foreach ($documents as $key => $document) {
-            if (!is_array($document)) {
-                continue;
-            }
             $normalizedKey = strtolower((string) (preg_replace('/[^A-Za-z0-9_-]/', '', (string) $key) ?? ''));
             if ($normalizedKey === $docKey) {
-                return $document;
+                return $this->normalizeKycDocumentRecord($document, $docKey);
             }
         }
 
         if (ctype_digit($docKey)) {
             $index = (int) $docKey;
             $values = array_values($documents);
-            if (isset($values[$index]) && is_array($values[$index])) {
-                return $values[$index];
+            if (isset($values[$index])) {
+                return $this->normalizeKycDocumentRecord($values[$index], $docKey);
             }
         }
 
         return null;
+    }
+
+    private function normalizeKycDocumentRecord(mixed $document, string $fallbackKey): ?array
+    {
+        $fallbackKey = trim($fallbackKey);
+        if (is_string($document)) {
+            $path = trim($document);
+            if ($path === '') {
+                return null;
+            }
+
+            return [
+                'file_name' => basename($path),
+                'file_path' => $path,
+                'path' => $path,
+                'mime' => '',
+            ];
+        }
+
+        if (!is_array($document)) {
+            return null;
+        }
+
+        $filePath = trim((string) ($document['file_path'] ?? ''));
+        $path = trim((string) ($document['path'] ?? ''));
+        if ($filePath === '' && $path === '') {
+            foreach (['storage_path', 'relative_path', 'uri', 'url'] as $alt) {
+                $candidate = trim((string) ($document[$alt] ?? ''));
+                if ($candidate !== '') {
+                    $path = $candidate;
+                    break;
+                }
+            }
+        }
+
+        if ($filePath === '' && $path === '') {
+            return null;
+        }
+
+        $fileName = trim((string) ($document['file_name'] ?? ''));
+        if ($fileName === '') {
+            $base = $filePath !== '' ? $filePath : $path;
+            $fileName = basename($base);
+        }
+        if ($fileName === '' && $fallbackKey !== '') {
+            $fileName = $fallbackKey;
+        }
+
+        $document['file_name'] = $fileName;
+        $document['file_path'] = $filePath;
+        $document['path'] = $path;
+        $document['mime'] = trim((string) ($document['mime'] ?? ''));
+
+        return $document;
     }
 
     private function resolveKycDocumentFilePath(array $document): ?string
@@ -1130,34 +1181,88 @@ class AdminPortalController extends Controller
         $candidates = [
             trim((string) ($document['file_path'] ?? '')),
             trim((string) ($document['path'] ?? '')),
+            trim((string) ($document['storage_path'] ?? '')),
+            trim((string) ($document['relative_path'] ?? '')),
+            trim((string) ($document['url'] ?? '')),
+            trim((string) ($document['uri'] ?? '')),
         ];
 
         foreach ($candidates as $candidate) {
-            if ($candidate === '' || preg_match('/^https?:\/\//i', $candidate) === 1) {
+            if ($candidate === '') {
                 continue;
             }
 
-            if (is_file($candidate)) {
-                return $candidate;
-            }
-
-            if (!preg_match('/^[A-Za-z]:\\\\/', $candidate) && !str_starts_with($candidate, DIRECTORY_SEPARATOR)) {
-                $basePathCandidate = base_path($candidate);
-                if (is_file($basePathCandidate)) {
-                    return $basePathCandidate;
-                }
-
-                $publicDiskPath = ltrim(str_replace('\\', '/', $candidate), '/');
-                if ($publicDiskPath !== '') {
-                    $storagePath = \Illuminate\Support\Facades\Storage::disk('public')->path($publicDiskPath);
-                    if (is_file($storagePath)) {
-                        return $storagePath;
-                    }
+            foreach ($this->expandKycDocumentPathCandidates($candidate) as $pathCandidate) {
+                if (is_file($pathCandidate)) {
+                    return $pathCandidate;
                 }
             }
         }
 
         return null;
+    }
+
+    /**
+     * @return array<int,string>
+     */
+    private function expandKycDocumentPathCandidates(string $candidate): array
+    {
+        $out = [];
+        $candidate = trim($candidate);
+        if ($candidate === '') {
+            return $out;
+        }
+
+        if (preg_match('/^https?:\/\//i', $candidate) === 1) {
+            $urlPath = (string) (parse_url($candidate, PHP_URL_PATH) ?? '');
+            if ($urlPath !== '') {
+                $candidate = $urlPath;
+            }
+        }
+
+        $push = static function (array &$paths, string $value): void {
+            $value = trim($value);
+            if ($value === '' || in_array($value, $paths, true)) {
+                return;
+            }
+            $paths[] = $value;
+        };
+
+        $push($out, $candidate);
+        $normalized = str_replace('\\', '/', $candidate);
+
+        $isAbsolute = str_starts_with($normalized, '/') || preg_match('/^[A-Za-z]:[\/\\\\]/', $candidate) === 1;
+        if (!$isAbsolute) {
+            $push($out, base_path($candidate));
+            $push($out, public_path($candidate));
+            $push($out, storage_path('app/public/' . ltrim($normalized, '/')));
+        }
+
+        if (str_starts_with($normalized, '/storage/')) {
+            $push($out, public_path(ltrim($normalized, '/')));
+            $push($out, storage_path('app/public/' . ltrim(substr($normalized, strlen('/storage/')), '/')));
+        }
+
+        if (str_starts_with($normalized, '/wp-content/')) {
+            $push($out, public_path(ltrim($normalized, '/')));
+        }
+
+        $wpContentPos = strpos($normalized, '/wp-content/');
+        if ($wpContentPos !== false) {
+            $suffix = ltrim(substr($normalized, $wpContentPos), '/');
+            $push($out, public_path($suffix));
+        }
+
+        $publicHtmlPos = strpos($normalized, '/public_html/');
+        if ($publicHtmlPos !== false) {
+            $suffix = ltrim(substr($normalized, $publicHtmlPos + strlen('/public_html/')), '/');
+            if ($suffix !== '') {
+                $push($out, public_path($suffix));
+                $push($out, base_path($suffix));
+            }
+        }
+
+        return $out;
     }
 
     private function loadMetrics(): array

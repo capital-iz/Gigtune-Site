@@ -28,6 +28,7 @@ class GigTuneShortcodeService
         'gigtune_client_home_snapshot' => 'clientSnapshot',
         'gigtune_client_psa_applicants_panel' => 'clientApplicants',
         'gigtune_client_profile_panel' => 'clientProfile',
+        'gigtune_client_profile_edit' => 'clientProfileEdit',
         'gigtune_public_client_profile' => 'publicClientProfile',
         'gigtune_public_artist_profile' => 'publicArtistProfile',
         'gigtune_artist_profile_edit' => 'artistProfileEdit',
@@ -387,6 +388,164 @@ class GigTuneShortcodeService
         }
         $meta = $this->postMetaMap([$profileId], ['gigtune_client_company', 'gigtune_client_phone', 'gigtune_client_base_area'])[$profileId] ?? [];
         return '<div class="rounded-xl border border-white/10 bg-white/5 p-4"><h3 class="text-sm font-semibold text-white">Client profile</h3><p class="mt-2 text-sm text-slate-300">Company: ' . e((string) ($meta['gigtune_client_company'] ?? '')) . '</p><p class="text-sm text-slate-300">Phone: ' . e((string) ($meta['gigtune_client_phone'] ?? '')) . '</p><p class="text-sm text-slate-300">Base area: ' . e((string) ($meta['gigtune_client_base_area'] ?? '')) . '</p><a class="mt-3 inline-flex rounded-md bg-blue-600 px-3 py-1.5 text-xs font-semibold text-white" href="/client-profile-edit/">Edit profile</a></div>';
+    }
+
+    private function clientProfileEdit(array $a, ?array $u, array $ctx = []): string
+    {
+        if (!is_array($u)) {
+            return '<div class="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">Sign in required.</div>';
+        }
+
+        $uid = (int) ($u['id'] ?? 0);
+        if ($uid <= 0) {
+            return '<div class="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">Sign in required.</div>';
+        }
+
+        $roles = is_array($u['roles'] ?? null) ? $u['roles'] : [];
+        if (!in_array('gigtune_client', $roles, true) && !((bool) ($u['is_admin'] ?? false))) {
+            return '<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">Client accounts only.</div>';
+        }
+
+        $request = $this->req($ctx);
+        $profileId = $this->latestUserMetaInt($uid, 'gigtune_client_profile_id');
+        if ($profileId <= 0) {
+            $profileId = (int) $this->db()->table($this->posts())->insertGetId([
+                'post_author' => $uid,
+                'post_date' => now()->format('Y-m-d H:i:s'),
+                'post_date_gmt' => now('UTC')->format('Y-m-d H:i:s'),
+                'post_content' => '',
+                'post_title' => (string) ($u['display_name'] ?? $u['login'] ?? ('Client ' . $uid)),
+                'post_status' => 'publish',
+                'comment_status' => 'closed',
+                'ping_status' => 'closed',
+                'post_name' => 'client-profile-' . $uid,
+                'post_modified' => now()->format('Y-m-d H:i:s'),
+                'post_modified_gmt' => now('UTC')->format('Y-m-d H:i:s'),
+                'post_type' => 'gt_client_profile',
+            ]);
+            if ($profileId > 0) {
+                $this->upsertUserMeta($uid, 'gigtune_client_profile_id', (string) $profileId);
+                $this->upsertPostMeta($profileId, 'gigtune_client_user_id', (string) $uid);
+            }
+        }
+
+        if ($profileId <= 0) {
+            return '<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">Client profile not found.</div>';
+        }
+
+        $post = $this->db()->table($this->posts())
+            ->where('ID', $profileId)
+            ->where('post_type', 'gt_client_profile')
+            ->first(['ID', 'post_title', 'post_content']);
+        if ($post === null) {
+            return '<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">Client profile unavailable.</div>';
+        }
+
+        $statusMessage = '';
+        $errorMessage = '';
+        if ($request !== null && strtoupper((string) $request->method()) === 'POST' && (string) $request->input('gigtune_client_profile_submit', '') === '1') {
+            $title = trim((string) $request->input('gigtune_client_title', ''));
+            $bio = trim((string) $request->input('gigtune_client_bio', ''));
+            $baseArea = trim((string) $request->input('gigtune_client_base_area', ''));
+            $province = trim((string) $request->input('gigtune_client_province', ''));
+            $city = trim((string) $request->input('gigtune_client_city', ''));
+            $company = trim((string) $request->input('gigtune_client_company', ''));
+            $phone = trim((string) $request->input('gigtune_client_phone', ''));
+            $bankAccountName = trim((string) $request->input('gigtune_client_bank_account_name', ''));
+            $bankAccountNumber = preg_replace('/\s+/', '', (string) $request->input('gigtune_client_bank_account_number', '')) ?? '';
+            $bankName = trim((string) $request->input('gigtune_client_bank_name', ''));
+            $branchCode = trim((string) $request->input('gigtune_client_branch_code', ''));
+            if ($branchCode === '') {
+                $branchCode = trim((string) $request->input('gigtune_client_bank_code', ''));
+            }
+
+            $phoneDigits = preg_replace('/\D+/', '', $phone) ?? '';
+            if ($title === '' || $bio === '' || $baseArea === '' || $company === '' || strlen($phoneDigits) < 9) {
+                $errorMessage = 'Please complete all required profile fields.';
+            } else {
+                $this->db()->table($this->posts())
+                    ->where('ID', $profileId)
+                    ->update([
+                        'post_title' => $title,
+                        'post_content' => $bio,
+                        'post_modified' => now()->format('Y-m-d H:i:s'),
+                        'post_modified_gmt' => now('UTC')->format('Y-m-d H:i:s'),
+                    ]);
+
+                $this->upsertPostMeta($profileId, 'gigtune_client_user_id', (string) $uid);
+                $this->upsertPostMeta($profileId, 'gigtune_client_base_area', $baseArea);
+                $this->upsertPostMeta($profileId, 'gigtune_client_province', $province);
+                $this->upsertPostMeta($profileId, 'gigtune_client_city', $city);
+                $this->upsertPostMeta($profileId, 'gigtune_client_company', $company);
+                $this->upsertPostMeta($profileId, 'gigtune_client_phone', $phone);
+                $this->upsertPostMeta($profileId, 'gigtune_client_bank_account_name', $bankAccountName);
+                $this->upsertPostMeta($profileId, 'gigtune_client_bank_account_number', $bankAccountNumber);
+                $this->upsertPostMeta($profileId, 'gigtune_client_bank_name', $bankName);
+                $this->upsertPostMeta($profileId, 'gigtune_client_branch_code', $branchCode);
+                $this->upsertPostMeta($profileId, 'gigtune_client_bank_code', $branchCode);
+
+                $statusMessage = 'Profile saved.';
+            }
+
+            $post = $this->db()->table($this->posts())
+                ->where('ID', $profileId)
+                ->where('post_type', 'gt_client_profile')
+                ->first(['ID', 'post_title', 'post_content']);
+            if ($post === null) {
+                return '<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">Client profile unavailable.</div>';
+            }
+        }
+
+        $meta = $this->postMetaMap([$profileId], [
+            'gigtune_client_base_area',
+            'gigtune_client_province',
+            'gigtune_client_city',
+            'gigtune_client_company',
+            'gigtune_client_phone',
+            'gigtune_client_bank_account_name',
+            'gigtune_client_bank_account_number',
+            'gigtune_client_bank_name',
+            'gigtune_client_branch_code',
+            'gigtune_client_bank_code',
+        ])[$profileId] ?? [];
+        $branchCode = (string) ($meta['gigtune_client_branch_code'] ?? '');
+        if ($branchCode === '') {
+            $branchCode = (string) ($meta['gigtune_client_bank_code'] ?? '');
+        }
+
+        $html = '<form method="post" class="space-y-6 rounded-2xl border border-white/10 bg-white/5 p-6">';
+        if ($statusMessage !== '') {
+            $html .= '<div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">' . e($statusMessage) . '</div>';
+        }
+        if ($errorMessage !== '') {
+            $html .= '<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">' . e($errorMessage) . '</div>';
+        }
+
+        $html .= '<input type="hidden" name="gigtune_client_profile_submit" value="1">';
+        $html .= '<div class="grid gap-4 md:grid-cols-2">';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Display name *</label><input required name="gigtune_client_title" value="' . e((string) ($post->post_title ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Company *</label><input required name="gigtune_client_company" value="' . e((string) ($meta['gigtune_client_company'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Phone *</label><input required name="gigtune_client_phone" value="' . e((string) ($meta['gigtune_client_phone'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Base area *</label><input required name="gigtune_client_base_area" value="' . e((string) ($meta['gigtune_client_base_area'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Province</label><input name="gigtune_client_province" value="' . e((string) ($meta['gigtune_client_province'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">City</label><input name="gigtune_client_city" value="' . e((string) ($meta['gigtune_client_city'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div class="md:col-span-2"><label class="mb-1 block text-sm text-slate-300">Bio *</label><textarea required name="gigtune_client_bio" rows="4" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white">' . e((string) ($post->post_content ?? '')) . '</textarea></div>';
+        $html .= '</div>';
+
+        $html .= '<div class="grid gap-4 md:grid-cols-2">';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Bank account name</label><input name="gigtune_client_bank_account_name" value="' . e((string) ($meta['gigtune_client_bank_account_name'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Bank account number</label><input name="gigtune_client_bank_account_number" value="' . e((string) ($meta['gigtune_client_bank_account_number'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Bank name</label><input name="gigtune_client_bank_name" value="' . e((string) ($meta['gigtune_client_bank_name'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Branch code</label><input name="gigtune_client_branch_code" value="' . e($branchCode) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '</div>';
+
+        $html .= '<div class="flex flex-wrap gap-2">';
+        $html .= '<button type="submit" class="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Save profile</button>';
+        $html .= '<a class="rounded-md border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200" href="/client-profile/?client_profile_id=' . (int) $profileId . '">Preview profile</a>';
+        $html .= '</div>';
+        $html .= '</form>';
+
+        return $html;
     }
 
     private function publicClientProfile(array $a, ?array $u, array $ctx = []): string
@@ -1287,10 +1446,15 @@ class GigTuneShortcodeService
         return $html;
     }
 
-    private function accountPortal(array $a, ?array $u): string
+    private function accountPortal(array $a, ?array $u, array $ctx = []): string
     {
         if (!is_array($u)) {
             return '<div class="rounded-2xl border border-white/10 bg-white/5 p-6 text-slate-200">Please sign in to manage your account.</div>';
+        }
+        $request = $this->req($ctx);
+        $path = strtolower(trim((string) ($request?->path() ?? ''), '/'));
+        if ($path === 'client-profile-edit') {
+            return $this->clientProfileEdit($a, $u, $ctx);
         }
         $roles = is_array($u['roles'] ?? null) ? $u['roles'] : [];
         $html = '<div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">';
@@ -1353,18 +1517,39 @@ class GigTuneShortcodeService
                 $docs = [];
                 $idPath = $idDoc->store('gigtune/kyc', 'public');
                 if (is_string($idPath) && $idPath !== '') {
-                    $docs['id_document'] = $idPath;
+                    $idAbsolute = storage_path('app/public/' . ltrim(str_replace('\\', '/', $idPath), '/'));
+                    $docs['id_document'] = [
+                        'file_name' => basename($idPath),
+                        'file_path' => $idAbsolute,
+                        'path' => $idPath,
+                        'mime' => (string) ($idDoc->getMimeType() ?? ''),
+                        'size' => (int) ($idDoc->getSize() ?? 0),
+                    ];
                 }
                 if ($selfieDoc !== null && $selfieDoc->isValid()) {
                     $selfiePath = $selfieDoc->store('gigtune/kyc', 'public');
                     if (is_string($selfiePath) && $selfiePath !== '') {
-                        $docs['selfie'] = $selfiePath;
+                        $selfieAbsolute = storage_path('app/public/' . ltrim(str_replace('\\', '/', $selfiePath), '/'));
+                        $docs['selfie'] = [
+                            'file_name' => basename($selfiePath),
+                            'file_path' => $selfieAbsolute,
+                            'path' => $selfiePath,
+                            'mime' => (string) ($selfieDoc->getMimeType() ?? ''),
+                            'size' => (int) ($selfieDoc->getSize() ?? 0),
+                        ];
                     }
                 }
                 if ($proofDoc !== null && $proofDoc->isValid()) {
                     $proofPath = $proofDoc->store('gigtune/kyc', 'public');
                     if (is_string($proofPath) && $proofPath !== '') {
-                        $docs['proof_of_address'] = $proofPath;
+                        $proofAbsolute = storage_path('app/public/' . ltrim(str_replace('\\', '/', $proofPath), '/'));
+                        $docs['proof_of_address'] = [
+                            'file_name' => basename($proofPath),
+                            'file_path' => $proofAbsolute,
+                            'path' => $proofPath,
+                            'mime' => (string) ($proofDoc->getMimeType() ?? ''),
+                            'size' => (int) ($proofDoc->getSize() ?? 0),
+                        ];
                     }
                 }
 
@@ -1629,6 +1814,9 @@ class GigTuneShortcodeService
             : '<a href="/book-an-artist/" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500">Book an Artist</a>';
         $secondaryCta = $artist
             ? '<a href="/artist-availability/" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white bg-white/10 hover:bg-white/15">Manage Availability</a>'
+            : '<a href="/client-profile-edit/" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white bg-white/10 hover:bg-white/15">Edit Profile</a>';
+        $tertiaryCta = $artist
+            ? ''
             : '<a href="/browse-artists/" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white bg-white/10 hover:bg-white/15">Browse Artists</a>';
 
         $uid = (int) ($u['id'] ?? 0);
@@ -1663,7 +1851,7 @@ class GigTuneShortcodeService
         $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
         $html .= '<h3 class="text-lg font-semibold text-white">' . e($title) . '</h3>';
         $html .= '<p class="mt-2 text-sm text-slate-300">Manage bookings, messages, notifications, and account compliance.</p>';
-        $html .= '<div class="mt-4 flex flex-wrap gap-3">' . $primaryCta . $secondaryCta . '<a href="/notifications/" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white bg-white/10 hover:bg-white/15">Notifications</a></div>';
+        $html .= '<div class="mt-4 flex flex-wrap gap-3">' . $primaryCta . $secondaryCta . $tertiaryCta . '<a href="/notifications/" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white bg-white/10 hover:bg-white/15">Notifications</a></div>';
         $html .= '</div>';
         $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
         $html .= '<h3 class="text-lg font-semibold text-white">Snapshot</h3>';

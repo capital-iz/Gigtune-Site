@@ -48,6 +48,24 @@ class SitePageController extends Controller
             return response($adminDashboard->render(), 200)->header('Content-Type', 'text/html; charset=UTF-8');
         }
 
+        if (
+            $normalizedPath === ''
+            && strtoupper((string) $request->method()) === 'GET'
+            && is_array($currentUser)
+        ) {
+            $homeDashboardSlug = $this->homeDashboardSlugForUser($currentUser);
+            if ($homeDashboardSlug !== '') {
+                $dashboardPage = $this->loadPageBySlug($homeDashboardSlug);
+                if (!is_array($dashboardPage)) {
+                    $dashboardPage = $this->loadVirtualTemplatePage($homeDashboardSlug);
+                }
+                if (is_array($dashboardPage)) {
+                    $template = $this->resolveTemplate($dashboardPage);
+                    return $this->renderTemplate($request, $currentUser, $dashboardPage, $template, 200);
+                }
+            }
+        }
+
         if ($slug === 'logout' || $slug === 'sign-out') {
             $this->logoutSession($request);
             $redirectTo = $this->safeRedirectPath((string) $request->query('redirect_to', '/'), '/');
@@ -216,6 +234,36 @@ class SitePageController extends Controller
         }
 
         return false;
+    }
+
+    /** @param array<string,mixed> $user */
+    private function homeDashboardSlugForUser(array $user): string
+    {
+        if ($this->isAdminLikeUser($user)) {
+            return '';
+        }
+
+        $roles = array_map(
+            static fn ($role): string => strtolower(trim((string) $role)),
+            (array) ($user['roles'] ?? [])
+        );
+        if (in_array('gigtune_artist', $roles, true)) {
+            return 'artist-dashboard';
+        }
+        if (in_array('gigtune_client', $roles, true)) {
+            return 'client-dashboard';
+        }
+
+        $dashboardUrl = trim((string) ($user['dashboard_url'] ?? ''));
+        if ($dashboardUrl !== '') {
+            $path = parse_url($dashboardUrl, PHP_URL_PATH);
+            $slug = trim((string) $path, '/');
+            if (in_array($slug, ['artist-dashboard', 'client-dashboard'], true)) {
+                return $slug;
+            }
+        }
+
+        return '';
     }
 
     private function logoutSession(Request $request): void

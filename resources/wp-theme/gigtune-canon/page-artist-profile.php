@@ -151,6 +151,12 @@ function gigtune_profile_extract_youtube_id($url) {
   return '';
 }
 
+function gigtune_profile_youtube_thumbnail($youtube_id) {
+  $youtube_id = trim((string) $youtube_id);
+  if ($youtube_id === '') return '';
+  return 'https://i.ytimg.com/vi/' . rawurlencode($youtube_id) . '/hqdefault.jpg';
+}
+
 function gigtune_profile_is_direct_video_url($url) {
   $path = (string) wp_parse_url((string) $url, PHP_URL_PATH);
   $ext = strtolower((string) pathinfo($path, PATHINFO_EXTENSION));
@@ -416,29 +422,74 @@ if ($using_live && !empty($artist['id'])) {
             <div class="text-white font-semibold mb-3"><?php echo esc_html($vt); ?></div>
 
             <?php if ($vu !== '' && $is_direct_video) : ?>
-              <video controls class="w-full rounded-lg mb-3" src="<?php echo esc_url($vu); ?>" preload="metadata" playsinline></video>
+              <div class="gt-demo-player relative overflow-hidden rounded-lg border border-slate-700 bg-black mb-3" data-demo-player="1">
+                <video
+                  class="w-full aspect-video bg-black"
+                  data-demo-video="1"
+                  data-src="<?php echo esc_url($vu); ?>"
+                  preload="none"
+                  playsinline
+                ></video>
+                <button type="button" class="gt-demo-overlay absolute inset-0 z-10 flex items-center justify-center gap-2 text-white" data-demo-overlay-play="1">
+                  <span class="inline-flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-blue-500 shadow-lg">
+                    <svg viewBox="0 0 24 24" class="w-5 h-5 fill-white" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+                  </span>
+                  <span class="text-sm font-semibold tracking-wide">Play Demo</span>
+                </button>
+                <div class="gt-demo-controls absolute inset-x-0 bottom-0 z-20 flex items-center gap-2 px-3 py-2">
+                  <button type="button" data-demo-toggle="1" class="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white hover:bg-white/20">Play</button>
+                  <input type="range" data-demo-seek="1" min="0" max="100" value="0" class="gt-demo-range h-1 w-full cursor-pointer rounded-full" />
+                  <span data-demo-time="1" class="whitespace-nowrap text-[11px] font-medium text-slate-200">0:00 / 0:00</span>
+                  <button type="button" data-demo-mute="1" class="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white hover:bg-white/20">Mute</button>
+                  <button type="button" data-demo-fullscreen="1" class="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white hover:bg-white/20">Full</button>
+                </div>
+              </div>
               <div class="text-slate-400 text-sm">Uploaded demo video</div>
             <?php elseif ($youtube_id !== '') : ?>
-              <div class="aspect-video rounded-lg overflow-hidden mb-3 border border-slate-700">
-                <iframe
-                  class="w-full h-full"
-                  src="<?php echo esc_url('https://www.youtube-nocookie.com/embed/' . rawurlencode($youtube_id)); ?>"
-                  title="<?php echo esc_attr($vt); ?>"
-                  loading="lazy"
-                  allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
-                  allowfullscreen
-                ></iframe>
+              <div class="gt-demo-embed relative aspect-video rounded-lg overflow-hidden mb-3 border border-slate-700 bg-black" data-demo-embed-wrap="1">
+                <button
+                  type="button"
+                  class="absolute inset-0 block w-full text-left"
+                  data-demo-embed-activate="1"
+                  data-embed-url="<?php echo esc_url('https://www.youtube-nocookie.com/embed/' . rawurlencode($youtube_id) . '?autoplay=1'); ?>"
+                  data-embed-allow="accelerometer; autoplay; clipboard-write; encrypted-media; gyroscope; picture-in-picture; web-share"
+                >
+                  <img src="<?php echo esc_url(gigtune_profile_youtube_thumbnail($youtube_id)); ?>" alt="<?php echo esc_attr($vt); ?>" class="absolute inset-0 h-full w-full object-cover" loading="lazy" />
+                  <span class="absolute inset-0 bg-gradient-to-t from-black/85 via-black/30 to-black/35"></span>
+                  <span class="absolute inset-x-4 bottom-4 flex items-center justify-between">
+                    <span class="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-100">
+                      <span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-blue-500 shadow-lg">
+                        <svg viewBox="0 0 24 24" class="w-4 h-4 fill-white" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+                      </span>
+                      YouTube
+                    </span>
+                    <span class="rounded-md bg-white/15 px-2 py-1 text-[11px] font-semibold text-white">Tap to load</span>
+                  </span>
+                </button>
               </div>
               <div class="text-slate-400 text-sm">YouTube demo</div>
             <?php elseif ($vu !== '' && $is_soundcloud) : ?>
-              <div class="rounded-lg overflow-hidden mb-3 border border-slate-700">
-                <iframe
-                  class="w-full h-[166px]"
-                  src="<?php echo esc_url('https://w.soundcloud.com/player/?url=' . rawurlencode($vu) . '&color=%236366f1&auto_play=false&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false'); ?>"
-                  title="<?php echo esc_attr($vt); ?>"
-                  loading="lazy"
-                  allow="autoplay"
-                ></iframe>
+              <div class="gt-demo-embed relative rounded-lg overflow-hidden mb-3 border border-slate-700 bg-black h-[166px]" data-demo-embed-wrap="1">
+                <button
+                  type="button"
+                  class="absolute inset-0 block w-full text-left"
+                  data-demo-embed-activate="1"
+                  data-embed-url="<?php echo esc_url('https://w.soundcloud.com/player/?url=' . rawurlencode($vu) . '&color=%236366f1&auto_play=true&hide_related=true&show_comments=false&show_user=true&show_reposts=false&show_teaser=false'); ?>"
+                  data-embed-class="w-full h-[166px]"
+                  data-embed-allow="autoplay"
+                >
+                  <span class="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-950 to-blue-950"></span>
+                  <span class="absolute inset-0 bg-gradient-to-t from-black/85 via-black/20 to-black/30"></span>
+                  <span class="absolute inset-x-4 bottom-4 flex items-center justify-between">
+                    <span class="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-100">
+                      <span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-blue-500 shadow-lg">
+                        <svg viewBox="0 0 24 24" class="w-4 h-4 fill-white" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+                      </span>
+                      SoundCloud
+                    </span>
+                    <span class="rounded-md bg-white/15 px-2 py-1 text-[11px] font-semibold text-white">Tap to load</span>
+                  </span>
+                </button>
               </div>
               <div class="text-slate-400 text-sm">SoundCloud demo</div>
             <?php elseif ($vu !== '') : ?>
@@ -463,7 +514,140 @@ if ($using_live && !empty($artist['id'])) {
       to { opacity: 1; transform: translateY(0); }
     }
     .animate-fade-in { animation: fadeIn 0.4s ease-out forwards; }
+    .gt-demo-overlay { background: radial-gradient(circle at center, rgba(15,23,42,0.35) 0%, rgba(2,6,23,0.85) 72%); transition: opacity .2s ease; }
+    .gt-demo-player.is-playing .gt-demo-overlay { opacity: 0; pointer-events: none; }
+    .gt-demo-controls { background: linear-gradient(to top, rgba(2,6,23,.94), rgba(2,6,23,.38)); backdrop-filter: blur(6px); }
+    .gt-demo-range { accent-color: #fbbf24; }
+    @media (hover:hover) {
+      .gt-demo-player:hover .gt-demo-overlay svg { transform: scale(1.04); }
+    }
   </style>
+  <script>
+    (function () {
+      function formatTime(seconds) {
+        var value = Number(seconds);
+        if (!Number.isFinite(value) || value < 0) value = 0;
+        var mins = Math.floor(value / 60);
+        var secs = Math.floor(value % 60);
+        return mins + ':' + String(secs).padStart(2, '0');
+      }
+
+      function ensureSource(video) {
+        if (!video) return false;
+        if (video.getAttribute('src')) return true;
+        var src = (video.dataset.src || '').trim();
+        if (!src) return false;
+        video.setAttribute('src', src);
+        try { video.load(); } catch (e) {}
+        return true;
+      }
+
+      function bindPlayer(root) {
+        if (!root || root.dataset.bound === '1') return;
+        root.dataset.bound = '1';
+        var video = root.querySelector('[data-demo-video="1"]');
+        if (!video) return;
+        var overlayPlay = root.querySelector('[data-demo-overlay-play="1"]');
+        var toggle = root.querySelector('[data-demo-toggle="1"]');
+        var seek = root.querySelector('[data-demo-seek="1"]');
+        var time = root.querySelector('[data-demo-time="1"]');
+        var mute = root.querySelector('[data-demo-mute="1"]');
+        var fullscreen = root.querySelector('[data-demo-fullscreen="1"]');
+
+        function refreshState() {
+          var isPlaying = !video.paused && !video.ended;
+          root.classList.toggle('is-playing', isPlaying);
+          if (toggle) toggle.textContent = isPlaying ? 'Pause' : 'Play';
+          if (mute) mute.textContent = video.muted ? 'Unmute' : 'Mute';
+        }
+
+        function refreshProgress() {
+          var duration = Number(video.duration);
+          var current = Number(video.currentTime || 0);
+          if (seek) {
+            var percent = duration > 0 ? (current / duration) * 100 : 0;
+            seek.value = String(Math.max(0, Math.min(100, percent)));
+          }
+          if (time) time.textContent = formatTime(current) + ' / ' + formatTime(duration);
+        }
+
+        function togglePlayback() {
+          if (!ensureSource(video)) return;
+          if (video.paused || video.ended) {
+            video.play().catch(function () {});
+          } else {
+            video.pause();
+          }
+        }
+
+        if (overlayPlay) overlayPlay.addEventListener('click', togglePlayback);
+        if (toggle) toggle.addEventListener('click', togglePlayback);
+        if (seek) {
+          seek.addEventListener('input', function () {
+            if (!ensureSource(video)) return;
+            var duration = Number(video.duration);
+            if (!Number.isFinite(duration) || duration <= 0) return;
+            var next = (Number(seek.value || 0) / 100) * duration;
+            if (Number.isFinite(next)) video.currentTime = next;
+          });
+        }
+        if (mute) {
+          mute.addEventListener('click', function () {
+            video.muted = !video.muted;
+            refreshState();
+          });
+        }
+        if (fullscreen) {
+          fullscreen.addEventListener('click', function () {
+            if (typeof root.requestFullscreen === 'function') {
+              root.requestFullscreen().catch(function () {});
+            }
+          });
+        }
+
+        video.addEventListener('play', refreshState);
+        video.addEventListener('pause', refreshState);
+        video.addEventListener('ended', refreshState);
+        video.addEventListener('loadedmetadata', refreshProgress);
+        video.addEventListener('timeupdate', refreshProgress);
+
+        refreshState();
+        refreshProgress();
+      }
+
+      function bindEmbed(button) {
+        if (!button || button.dataset.bound === '1') return;
+        button.dataset.bound = '1';
+        button.addEventListener('click', function () {
+          var wrap = button.closest('[data-demo-embed-wrap="1"]');
+          if (!wrap) return;
+          var url = (button.dataset.embedUrl || '').trim();
+          if (!url) return;
+          var iframe = document.createElement('iframe');
+          iframe.src = url;
+          iframe.className = (button.dataset.embedClass || 'w-full h-full');
+          iframe.setAttribute('title', 'Demo media');
+          iframe.setAttribute('loading', 'lazy');
+          iframe.setAttribute('allowfullscreen', 'allowfullscreen');
+          iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
+          iframe.setAttribute('allow', (button.dataset.embedAllow || 'autoplay; encrypted-media; picture-in-picture; fullscreen'));
+          wrap.innerHTML = '';
+          wrap.appendChild(iframe);
+        });
+      }
+
+      function bindAll() {
+        document.querySelectorAll('[data-demo-player="1"]').forEach(bindPlayer);
+        document.querySelectorAll('[data-demo-embed-activate="1"]').forEach(bindEmbed);
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', bindAll);
+      } else {
+        bindAll();
+      }
+    })();
+  </script>
 </div>
 
 <?php

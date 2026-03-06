@@ -67,6 +67,7 @@ class GigTuneShortcodeService
         'woocommerce_checkout' => 'wooCheckout',
     ];
     private int $demoPreviewCounter = 0;
+    private ?bool $ffmpegAvailable = null;
 
     public function has(string $tag): bool
     {
@@ -6683,6 +6684,7 @@ HTML;
 
         $relativePath = $subdir . '/' . $filename;
         $mime = (string) ($file->getClientMimeType() ?: $file->getMimeType() ?: 'application/octet-stream');
+        $this->optimizeUploadedVideoForStreaming($absolutePath, $mime, $extension);
         $now = now();
         $nowUtc = now('UTC');
         $postTitle = trim($titlePrefix . ' ' . pathinfo($filename, PATHINFO_FILENAME));
@@ -6719,6 +6721,64 @@ HTML;
         $this->upsertPostMeta($attachmentId, '_wp_attached_file', str_replace('\\', '/', $relativePath));
         $this->upsertPostMeta($attachmentId, '_wp_attachment_metadata', '');
         return $attachmentId;
+    }
+
+    private function optimizeUploadedVideoForStreaming(string $absolutePath, string $mime, string $extension): void
+    {
+        $mime = strtolower(trim($mime));
+        $extension = strtolower(trim($extension));
+        $videoExtensions = ['mp4', 'm4v', 'mov', 'webm', 'ogv'];
+        $isVideo = str_starts_with($mime, 'video/') || in_array($extension, $videoExtensions, true);
+        if (!$isVideo || !is_file($absolutePath) || !function_exists('exec')) {
+            return;
+        }
+        if (!$this->isFfmpegAvailable()) {
+            return;
+        }
+
+        $tempPath = dirname($absolutePath) . DIRECTORY_SEPARATOR
+            . pathinfo($absolutePath, PATHINFO_FILENAME)
+            . '-faststart-' . random_int(1000, 9999)
+            . '.'
+            . pathinfo($absolutePath, PATHINFO_EXTENSION);
+        $command = 'ffmpeg -y -loglevel error -i '
+            . escapeshellarg($absolutePath)
+            . ' -c copy -movflags +faststart '
+            . escapeshellarg($tempPath)
+            . ' 2>&1';
+
+        $output = [];
+        $exitCode = 1;
+        @exec($command, $output, $exitCode);
+
+        if ($exitCode !== 0 || !is_file($tempPath) || filesize($tempPath) <= 0) {
+            if (is_file($tempPath)) {
+                @unlink($tempPath);
+            }
+            return;
+        }
+
+        if (!@rename($tempPath, $absolutePath)) {
+            @copy($tempPath, $absolutePath);
+            @unlink($tempPath);
+        }
+    }
+
+    private function isFfmpegAvailable(): bool
+    {
+        if ($this->ffmpegAvailable !== null) {
+            return $this->ffmpegAvailable;
+        }
+        if (!function_exists('exec')) {
+            $this->ffmpegAvailable = false;
+            return false;
+        }
+
+        $output = [];
+        $exitCode = 1;
+        @exec('ffmpeg -version 2>&1', $output, $exitCode);
+        $this->ffmpegAvailable = ($exitCode === 0);
+        return $this->ffmpegAvailable;
     }
 
     private function deleteAttachment(int $attachmentId): void

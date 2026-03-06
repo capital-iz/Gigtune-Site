@@ -432,8 +432,8 @@ class GigTuneShortcodeService
     }
 
     private function roleNav(array $a, ?array $u): string { return is_array($u) ? '<div class="mb-4 flex flex-wrap gap-2"><a class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200" href="/my-account-page/">Account</a><a class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200" href="/messages/">Messages</a><a class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200" href="/notifications/">Notifications</a></div>' : ''; }
-    private function artistDashboard(array $a, ?array $u): string { return $this->dashboardShell($u, true); }
-    private function clientDashboard(array $a, ?array $u): string { return $this->dashboardShell($u, false); }
+    private function artistDashboard(array $a, ?array $u, array $ctx = []): string { return $this->dashboardShell($u, true, $ctx); }
+    private function clientDashboard(array $a, ?array $u, array $ctx = []): string { return $this->dashboardShell($u, false, $ctx); }
     private function artistFeed(array $a, ?array $u = null, array $ctx = []): string { return $this->renderPsaFeed($a, $u, $ctx); }
     private function artistDirectory(array $a): string { return $this->artistCards(max(1, min(60, (int) ($a['limit'] ?? 18)))); }
     private function featuredArtists(array $a): string { return $this->artistCards(max(1, min(12, (int) ($a['limit'] ?? 6)))); }
@@ -3538,6 +3538,55 @@ class GigTuneShortcodeService
     private function verifyEmail(array $a, ?array $u = null, array $ctx = []): string
     {
         $request = $this->req($ctx);
+        $statusHtml = '';
+        $verifiedSuccess = false;
+
+        $token = trim((string) ($request?->query('token', $request?->input('token', '')) ?? ''));
+        $targetUserId = (int) ($request?->query('user_id', $request?->input('user_id', 0)) ?? 0);
+        if ($token !== '') {
+            $tokenHash = hash('sha256', $token);
+            if ($targetUserId <= 0) {
+                $targetUserId = $this->findUserIdByMetaTokenHash('gigtune_email_verification_token_hash', $tokenHash);
+            }
+
+            if ($targetUserId <= 0) {
+                $statusHtml = '<div class="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">Invalid verification link.</div>';
+            } else {
+                $storedHash = trim($this->latestUserMeta($targetUserId, 'gigtune_email_verification_token_hash'));
+                $expiresAt = (int) $this->latestUserMeta($targetUserId, 'gigtune_email_verification_expires_at');
+                if ($storedHash === '' || $expiresAt <= 0) {
+                    $statusHtml = '<div class="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">Verification token is missing or expired.</div>';
+                } elseif ($expiresAt < time()) {
+                    $statusHtml = '<div class="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">Verification link has expired.</div>';
+                } elseif (!hash_equals($storedHash, $tokenHash)) {
+                    $statusHtml = '<div class="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">Verification token is invalid.</div>';
+                } else {
+                    $this->upsertUserMeta($targetUserId, 'gigtune_email_verified', '1');
+                    $this->upsertUserMeta($targetUserId, 'gigtune_email_verification_required', '0');
+                    $this->upsertUserMeta($targetUserId, 'gigtune_email_verified_at', (string) now()->timestamp);
+                    $this->upsertUserMeta($targetUserId, 'gigtune_email_verification_token_hash', '');
+                    $this->upsertUserMeta($targetUserId, 'gigtune_email_verification_expires_at', '');
+                    $this->upsertUserMeta($targetUserId, 'gigtune_email_verification_delivery', 'confirmed');
+                    $statusHtml = '<div class="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">Email verified successfully. You can continue using GigTune.</div>';
+                    $verifiedSuccess = true;
+                }
+            }
+        }
+
+        $verifyError = strtolower(trim((string) ($request?->query('verify_error', '') ?? '')));
+        if ($verifyError !== '' && $statusHtml === '') {
+            $message = match ($verifyError) {
+                'invalid_nonce' => 'Security check failed. Please try again.',
+                'send_failed' => 'Unable to send verification email right now. Please try again.',
+                'login_required' => 'Please sign in to resend verification email.',
+                'rate_limited' => 'Too many attempts, try again later.',
+                default => 'Unable to process verification request.',
+            };
+            $statusHtml = '<div class="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">' . e($message) . '</div>';
+        } elseif ($statusHtml === '' && strtolower(trim((string) ($request?->query('verify_sent', '') ?? ''))) === '1') {
+            $statusHtml = '<div class="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">Verification email sent. Check your inbox.</div>';
+        }
+
         $resent = false;
         $deliveryFailed = false;
         if ($request !== null && strtoupper((string) $request->method()) === 'POST' && (string) $request->input('gigtune_resend_verification_submit', '') === '1' && is_array($u)) {
@@ -3556,12 +3605,28 @@ class GigTuneShortcodeService
         }
 
         if (!is_array($u)) {
-            return '<div class="rounded-2xl border border-white/10 bg-white/5 p-6 md:p-8"><h2 class="text-2xl font-bold text-white">Verify your email</h2><p class="mt-2 text-sm text-slate-300">Email verification is required before booking creation and payment initiation.</p><a href="/sign-in/" class="mt-4 inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500">Sign in</a></div>';
+            $html = '<div class="rounded-2xl border border-white/10 bg-white/5 p-6 md:p-8"><h2 class="text-2xl font-bold text-white">Verify your email</h2><p class="mt-2 text-sm text-slate-300">Email verification is required before booking creation and payment initiation.</p>';
+            if ($statusHtml !== '') {
+                $html .= $statusHtml;
+            }
+            if ($verifiedSuccess) {
+                $html .= '<a href="/sign-in/" class="mt-4 inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500">Continue</a>';
+            } else {
+                $html .= '<a href="/sign-in/" class="mt-4 inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500">Sign in</a>';
+            }
+            return $html . '</div>';
         }
 
         $uid = (int) ($u['id'] ?? 0);
         $isVerified = $this->latestUserMeta($uid, 'gigtune_email_verified') === '1';
         $html = '<div class="rounded-2xl border border-white/10 bg-white/5 p-6 md:p-8"><h2 class="text-2xl font-bold text-white">Verify your email</h2><p class="mt-2 text-sm text-slate-300">Email verification is required before booking creation and payment initiation.</p>';
+        if ($statusHtml !== '') {
+            $html .= $statusHtml;
+        }
+        if ($verifiedSuccess) {
+            $html .= '<a href="' . e((string) ($u['dashboard_url'] ?? '/')) . '" class="mt-4 inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500">Continue</a>';
+            return $html . '</div>';
+        }
         if ($isVerified) {
             $html .= '<div class="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">Your email is already verified.</div>';
             $html .= '<a href="' . e((string) ($u['dashboard_url'] ?? '/')) . '" class="mt-4 inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500">Open dashboard</a>';
@@ -3615,15 +3680,65 @@ class GigTuneShortcodeService
     private function resetPassword(array $a, ?array $u = null, array $ctx = []): string
     {
         $request = $this->req($ctx);
+        $token = trim((string) ($request?->query('token', $request?->input('token', '')) ?? ''));
+        $targetUserId = (int) ($request?->query('user_id', $request?->input('user_id', 0)) ?? 0);
+        $statusHtml = '';
         $done = false;
-        if ($request !== null && strtoupper((string) $request->method()) === 'POST' && (string) $request->input('gigtune_reset_password_submit', '') === '1') {
-            $done = true;
+
+        $resolveByToken = static function (string $rawToken): string {
+            return hash('sha256', $rawToken);
+        };
+
+        if ($token !== '' && $targetUserId <= 0) {
+            $targetUserId = $this->findUserIdByMetaTokenHash('gigtune_password_reset_token_hash', $resolveByToken($token));
         }
+
+        $tokenValid = false;
+        if ($token !== '' && $targetUserId > 0) {
+            $storedHash = trim($this->latestUserMeta($targetUserId, 'gigtune_password_reset_token_hash'));
+            $expiresAt = (int) $this->latestUserMeta($targetUserId, 'gigtune_password_reset_expires_at');
+            if ($storedHash !== '' && $expiresAt > 0 && $expiresAt >= time() && hash_equals($storedHash, $resolveByToken($token))) {
+                $tokenValid = true;
+            }
+        }
+
+        if ($request !== null && strtoupper((string) $request->method()) === 'POST' && (string) $request->input('gigtune_reset_password_submit', '') === '1') {
+            $password = (string) $request->input('gigtune_reset_password', '');
+            $confirm = (string) $request->input('gigtune_reset_password_confirm', '');
+            if (!$tokenValid) {
+                $statusHtml = '<div class="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">Password reset link is invalid or expired.</div>';
+            } elseif ($password === '' || $confirm === '') {
+                $statusHtml = '<div class="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">Please enter your new password in both fields.</div>';
+            } elseif ($password !== $confirm) {
+                $statusHtml = '<div class="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">Passwords do not match.</div>';
+            } elseif (strlen($password) < 8) {
+                $statusHtml = '<div class="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">Password must be at least 8 characters.</div>';
+            } else {
+                try {
+                    $this->users->updateUserPassword($targetUserId, $password);
+                    $this->upsertUserMeta($targetUserId, 'gigtune_password_reset_token_hash', '');
+                    $this->upsertUserMeta($targetUserId, 'gigtune_password_reset_expires_at', '');
+                    $this->upsertUserMeta($targetUserId, 'gigtune_password_reset_completed_at', now()->format('Y-m-d H:i:s'));
+                    $done = true;
+                } catch (\Throwable) {
+                    $statusHtml = '<div class="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">Unable to reset password right now. Please try again.</div>';
+                }
+            }
+        }
+
         $html = '<div class="rounded-2xl border border-white/10 bg-white/5 p-6 md:p-8"><h2 class="text-2xl font-bold text-white">Reset password</h2><p class="mt-2 text-sm text-slate-300">Set a new password using your reset token.</p>';
+        if ($statusHtml !== '') {
+            $html .= $statusHtml;
+        }
+        if ($token === '' || $targetUserId <= 0 || (!$tokenValid && !$done)) {
+            return $html . '<div class="mt-4 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4 text-sm text-rose-200">Password reset link is invalid or incomplete.</div></div>';
+        }
         if ($done) {
             $html .= '<div class="mt-4 rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-4 text-sm text-emerald-200">Password reset complete. You can sign in now.</div>';
+            $html .= '<a href="/sign-in/" class="mt-4 inline-flex items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500">Sign in</a>';
+            return $html . '</div>';
         }
-        $html .= '<form method="post" class="mt-4 space-y-4"><input type="hidden" name="gigtune_reset_password_submit" value="1"><div><label class="mb-2 block text-sm font-semibold text-slate-200" for="gigtune_reset_password">New password</label><input id="gigtune_reset_password" type="password" name="gigtune_reset_password" required class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div><div><label class="mb-2 block text-sm font-semibold text-slate-200" for="gigtune_reset_password_confirm">Confirm password</label><input id="gigtune_reset_password_confirm" type="password" name="gigtune_reset_password_confirm" required class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div><button type="submit" class="inline-flex w-full items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500">Reset password</button></form></div>';
+        $html .= '<form method="post" class="mt-4 space-y-4"><input type="hidden" name="gigtune_reset_password_submit" value="1"><input type="hidden" name="token" value="' . e($token) . '"><input type="hidden" name="user_id" value="' . e((string) $targetUserId) . '"><div><label class="mb-2 block text-sm font-semibold text-slate-200" for="gigtune_reset_password">New password</label><input id="gigtune_reset_password" type="password" name="gigtune_reset_password" required class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div><div><label class="mb-2 block text-sm font-semibold text-slate-200" for="gigtune_reset_password_confirm">Confirm password</label><input id="gigtune_reset_password_confirm" type="password" name="gigtune_reset_password_confirm" required class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div><button type="submit" class="inline-flex w-full items-center justify-center rounded-xl px-5 py-3 text-sm font-semibold text-white bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500">Reset password</button></form></div>';
         return $html;
     }
     private function yocoSuccess(array $a): string
@@ -3704,7 +3819,7 @@ class GigTuneShortcodeService
     private function wooCart(array $a): string { return '<div class="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">Cart handled through booking flow.</div>'; }
     private function wooCheckout(array $a): string { return '<div class="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">Checkout handled via Yoco/Paystack.</div>'; }
 
-    private function dashboardShell(?array $u, bool $artist): string
+    private function dashboardShell(?array $u, bool $artist, array $ctx = []): string
     {
         if (!is_array($u)) {
             return '<div class="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">Sign in required.</div>';
@@ -3859,7 +3974,7 @@ class GigTuneShortcodeService
         $html .= '</div>';
         $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
         $html .= '<h3 class="text-lg font-semibold text-white">Recent Bookings</h3>';
-        $html .= '<div class="mt-4">' . $this->bookingsTable($u, $artist) . '</div>';
+        $html .= '<div class="mt-4">' . $this->bookingsTable($u, $artist, $ctx) . '</div>';
         $html .= '</div>';
         $html .= '</div>';
 
@@ -3883,7 +3998,7 @@ class GigTuneShortcodeService
         return $html;
     }
 
-    private function bookingsTable(?array $u, bool $artist): string
+    private function bookingsTable(?array $u, bool $artist, array $ctx = []): string
     {
         if (!is_array($u)) {
             return '<div class="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">Sign in required.</div>';
@@ -3893,22 +4008,82 @@ class GigTuneShortcodeService
         if ($uid <= 0) {
             return '<div class="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">Sign in required.</div>';
         }
+        $request = $this->req($ctx);
+        $archiveMetaKey = $artist ? 'gigtune_booking_is_archived_artist' : 'gigtune_booking_is_archived_client';
+        $statusMessage = '';
+        $errorMessage = '';
+        $viewerArtistProfileId = 0;
+        if ($artist) {
+            $viewerArtistProfileId = $this->latestUserMetaInt($uid, 'gigtune_artist_profile_id');
+            if ($viewerArtistProfileId <= 0) {
+                return '<div class="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">No linked artist profile found.</div>';
+            }
+        }
+
+        if (
+            $request !== null
+            && strtoupper((string) $request->method()) === 'POST'
+            && (string) $request->input('gigtune_booking_archive_submit', '') === '1'
+        ) {
+            $nonce = trim((string) $request->input('gigtune_booking_archive_nonce', ''));
+            $action = trim((string) $request->input('gigtune_booking_archive_action', ''));
+            $targetBookingId = abs((int) $request->input('gigtune_booking_archive_id', 0));
+            if (!$this->verifyWpNonce($nonce, 'gigtune_booking_archive_action')) {
+                $errorMessage = 'Security check failed.';
+            } elseif ($targetBookingId <= 0 || !in_array($action, ['archive', 'restore'], true)) {
+                $errorMessage = 'Invalid booking archive request.';
+            } else {
+                $targetBooking = $this->db()->table($this->posts())
+                    ->where('ID', $targetBookingId)
+                    ->where('post_type', 'gigtune_booking')
+                    ->first(['ID']);
+                if ($targetBooking === null) {
+                    $errorMessage = 'Booking not found.';
+                } else {
+                    $targetMeta = $this->postMetaMap([$targetBookingId], [
+                        'gigtune_booking_client_user_id',
+                        'gigtune_booking_artist_profile_id',
+                        'gigtune_booking_status',
+                        'gigtune_booking_event_date',
+                        'gigtune_payment_status',
+                        'gigtune_payout_status',
+                        'gigtune_refund_status',
+                    ])[$targetBookingId] ?? [];
+
+                    $ownsBooking = false;
+                    if ($artist) {
+                        $targetArtistProfileId = (int) ($targetMeta['gigtune_booking_artist_profile_id'] ?? 0);
+                        $ownsBooking = $viewerArtistProfileId > 0 && $viewerArtistProfileId === $targetArtistProfileId;
+                    } else {
+                        $targetClientUserId = (int) ($targetMeta['gigtune_booking_client_user_id'] ?? 0);
+                        $ownsBooking = $uid > 0 && $uid === $targetClientUserId;
+                    }
+
+                    if (!$ownsBooking) {
+                        $errorMessage = 'You do not have permission to archive this booking.';
+                    } elseif ($action === 'archive' && !$this->bookingCanBeArchived($targetMeta)) {
+                        $errorMessage = 'Only past or closed bookings can be archived.';
+                    } else {
+                        $this->upsertPostMeta($targetBookingId, $archiveMetaKey, $action === 'archive' ? '1' : '0');
+                        $statusMessage = $action === 'archive'
+                            ? ('Booking #' . $targetBookingId . ' archived.')
+                            : ('Booking #' . $targetBookingId . ' restored.');
+                    }
+                }
+            }
+        }
 
         $query = $this->db()->table($this->posts() . ' as p')
             ->where('p.post_type', 'gigtune_booking')
             ->orderByDesc('p.ID');
 
         if ($artist) {
-            $profileId = $this->latestUserMetaInt($uid, 'gigtune_artist_profile_id');
-            if ($profileId <= 0) {
-                return '<div class="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">No linked artist profile found.</div>';
-            }
-            $query->whereExists(function ($q) use ($profileId): void {
+            $query->whereExists(function ($q) use ($viewerArtistProfileId): void {
                 $q->selectRaw('1')
                     ->from($this->pm() . ' as pm')
                     ->whereColumn('pm.post_id', 'p.ID')
                     ->where('pm.meta_key', 'gigtune_booking_artist_profile_id')
-                    ->where('pm.meta_value', (string) $profileId);
+                    ->where('pm.meta_value', (string) $viewerArtistProfileId);
             });
         } else {
             $query->whereExists(function ($q) use ($uid): void {
@@ -3920,8 +4095,8 @@ class GigTuneShortcodeService
             });
         }
 
-        $rows = $query->limit(20)->get(['p.ID', 'p.post_title', 'p.post_date']);
-        if ($rows->isEmpty()) {
+        $rows = $query->limit(80)->get(['p.ID', 'p.post_title', 'p.post_date']);
+        if ($rows->isEmpty() && $statusMessage === '' && $errorMessage === '') {
             return '<div class="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">No bookings yet.</div>';
         }
 
@@ -3936,15 +4111,44 @@ class GigTuneShortcodeService
             'gigtune_booking_event_date',
             'gigtune_booking_client_user_id',
             'gigtune_booking_artist_profile_id',
+            'gigtune_refund_status',
+            $archiveMetaKey,
         ]);
 
-        $out = '<div class="space-y-3">';
+        $activeRows = [];
+        $archivedRows = [];
         foreach ($rows as $row) {
+            $id = (int) $row->ID;
+            $meta = $metaMap[$id] ?? [];
+            $isArchived = trim((string) ($meta[$archiveMetaKey] ?? '')) === '1';
+            if ($isArchived) {
+                $archivedRows[] = $row;
+            } else {
+                $activeRows[] = $row;
+            }
+        }
+
+        $nonce = $this->createWpNonce('gigtune_booking_archive_action');
+        $out = '<div class="space-y-4">';
+        if ($statusMessage !== '') {
+            $out .= '<div class="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3 text-sm text-emerald-200">' . e($statusMessage) . '</div>';
+        }
+        if ($errorMessage !== '') {
+            $out .= '<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">' . e($errorMessage) . '</div>';
+        }
+
+        if ($activeRows === []) {
+            $out .= '<div class="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">No active bookings.</div>';
+        } else {
+            $out .= '<div class="space-y-3">';
+        }
+        foreach (array_slice($activeRows, 0, 20) as $row) {
             $id = (int) $row->ID;
             $meta = $metaMap[$id] ?? [];
             $status = $this->toSentenceCase((string) ($meta['gigtune_booking_status'] ?? ''));
             $payment = $this->toSentenceCase((string) ($meta['gigtune_payment_status'] ?? ''));
             $payout = $this->toSentenceCase((string) ($meta['gigtune_payout_status'] ?? ''));
+            $refund = $this->toSentenceCase((string) ($meta['gigtune_refund_status'] ?? ''));
             $eventDate = trim((string) ($meta['gigtune_booking_event_date'] ?? ''));
             $partyId = $artist
                 ? (int) ($meta['gigtune_booking_client_user_id'] ?? 0)
@@ -3952,19 +4156,61 @@ class GigTuneShortcodeService
             $partyLink = $artist
                 ? '/client-profile/?client_user_id=' . $partyId
                 : '/artist-profile/?artist_id=' . $partyId;
+            $allowArchive = $this->bookingCanBeArchived($meta);
 
             $out .= '<article class="rounded-xl border border-white/10 bg-black/20 p-4">';
             $out .= '<div class="flex flex-wrap items-center justify-between gap-3">';
             $out .= '<div class="text-sm font-semibold text-white">Booking #' . $id . '</div>';
             $out .= '<a href="/messages/?booking_id=' . $id . '" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15">View Booking</a>';
             $out .= '</div>';
-            $out .= '<div class="mt-2 text-xs text-slate-300">Status: ' . e($status !== '' ? $status : '-') . ' | Payment: ' . e($payment !== '' ? $payment : '-') . ' | Payout: ' . e($payout !== '' ? $payout : '-') . '</div>';
+            $out .= '<div class="mt-2 text-xs text-slate-300">Status: ' . e($status !== '' ? $status : '-') . ' | Payment: ' . e($payment !== '' ? $payment : '-') . ' | Payout: ' . e($payout !== '' ? $payout : '-') . ' | Refund: ' . e($refund !== '' ? $refund : '-') . '</div>';
             $out .= '<div class="mt-1 text-xs text-slate-300">Event: ' . e($eventDate !== '' ? $eventDate : '-') . '</div>';
+            $out .= '<div class="mt-3 flex flex-wrap gap-2">';
             if ($partyId > 0) {
-                $out .= '<div class="mt-3"><a href="' . e($partyLink) . '" class="inline-flex items-center rounded-lg bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/15">' . ($artist ? 'View Client Profile' : 'View Artist Profile') . '</a></div>';
+                $out .= '<a href="' . e($partyLink) . '" class="inline-flex items-center rounded-lg bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/15">' . ($artist ? 'View Client Profile' : 'View Artist Profile') . '</a>';
             }
+            if ($allowArchive) {
+                $out .= '<form method="post" class="inline-flex">'
+                    . '<input type="hidden" name="gigtune_booking_archive_submit" value="1">'
+                    . '<input type="hidden" name="gigtune_booking_archive_nonce" value="' . e($nonce) . '">'
+                    . '<input type="hidden" name="gigtune_booking_archive_action" value="archive">'
+                    . '<input type="hidden" name="gigtune_booking_archive_id" value="' . $id . '">'
+                    . '<button type="submit" class="inline-flex items-center rounded-lg bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/15">Archive</button>'
+                    . '</form>';
+            }
+            $out .= '</div>';
             $out .= '</article>';
         }
+        if ($activeRows !== []) {
+            $out .= '</div>';
+        }
+
+        if ($archivedRows !== []) {
+            $out .= '<div class="pt-3"><div class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Archived bookings</div><div class="space-y-3">';
+            foreach (array_slice($archivedRows, 0, 20) as $row) {
+                $id = (int) $row->ID;
+                $meta = $metaMap[$id] ?? [];
+                $status = $this->toSentenceCase((string) ($meta['gigtune_booking_status'] ?? ''));
+                $eventDate = trim((string) ($meta['gigtune_booking_event_date'] ?? ''));
+                $out .= '<article class="rounded-xl border border-white/10 bg-black/20 p-4">';
+                $out .= '<div class="flex flex-wrap items-center justify-between gap-3">';
+                $out .= '<div class="text-sm font-semibold text-white">Booking #' . $id . ' <span class="text-slate-400">Archived</span></div>';
+                $out .= '<div class="flex flex-wrap gap-2">';
+                $out .= '<a href="/messages/?booking_id=' . $id . '" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15">View Booking</a>';
+                $out .= '<form method="post" class="inline-flex">'
+                    . '<input type="hidden" name="gigtune_booking_archive_submit" value="1">'
+                    . '<input type="hidden" name="gigtune_booking_archive_nonce" value="' . e($nonce) . '">'
+                    . '<input type="hidden" name="gigtune_booking_archive_action" value="restore">'
+                    . '<input type="hidden" name="gigtune_booking_archive_id" value="' . $id . '">'
+                    . '<button type="submit" class="inline-flex items-center rounded-lg bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/15">Restore</button>'
+                    . '</form>';
+                $out .= '</div></div>';
+                $out .= '<div class="mt-2 text-xs text-slate-300">Status: ' . e($status !== '' ? $status : '-') . ' | Event: ' . e($eventDate !== '' ? $eventDate : '-') . '</div>';
+                $out .= '</article>';
+            }
+            $out .= '</div></div>';
+        }
+
         return $out . '</div>';
     }
 
@@ -6372,6 +6618,66 @@ HTML;
     }
 
     /** @param array<string,string> $bookingMeta */
+    private function bookingCanBeArchived(array $bookingMeta): bool
+    {
+        $statusRaw = strtoupper(trim((string) ($bookingMeta['gigtune_booking_status'] ?? '')));
+        $paymentRaw = strtoupper(trim((string) ($bookingMeta['gigtune_payment_status'] ?? '')));
+        $payoutRaw = strtoupper(trim((string) ($bookingMeta['gigtune_payout_status'] ?? '')));
+        $refundRaw = strtoupper(trim((string) ($bookingMeta['gigtune_refund_status'] ?? '')));
+
+        $closedStatuses = [
+            'REJECTED',
+            'PAYMENT_TIMEOUT',
+            'COMPLETED_BY_ARTIST',
+            'COMPLETED_CONFIRMED',
+            'CANCELLED_BY_CLIENT',
+            'CANCELLED_BY_ARTIST',
+            'REFUNDED',
+            'REFUNDED_FULL',
+        ];
+        if (in_array($statusRaw, $closedStatuses, true)) {
+            return true;
+        }
+        if (in_array($paymentRaw, ['FAILED', 'REFUNDED', 'REFUNDED_FULL'], true)) {
+            return true;
+        }
+        if (in_array($refundRaw, ['SUCCEEDED', 'REJECTED'], true)) {
+            return true;
+        }
+        if (in_array($payoutRaw, ['PAID', 'FAILED'], true)) {
+            return true;
+        }
+
+        $eventDate = trim((string) ($bookingMeta['gigtune_booking_event_date'] ?? ''));
+        if ($eventDate === '') {
+            return false;
+        }
+        $timezoneName = (string) config('app.timezone', 'Africa/Johannesburg');
+        try {
+            $timezone = new \DateTimeZone($timezoneName !== '' ? $timezoneName : 'Africa/Johannesburg');
+        } catch (\Throwable) {
+            $timezone = new \DateTimeZone('Africa/Johannesburg');
+        }
+
+        $eventTs = 0;
+        foreach (['Y-m-d\TH:i', 'Y-m-d H:i:s', 'Y-m-d H:i', 'Y-m-d'] as $format) {
+            $candidate = \DateTimeImmutable::createFromFormat($format, $eventDate, $timezone);
+            if ($candidate instanceof \DateTimeImmutable) {
+                $eventTs = $candidate->getTimestamp();
+                break;
+            }
+        }
+        if ($eventTs <= 0) {
+            $fallback = strtotime($eventDate);
+            if ($fallback !== false) {
+                $eventTs = (int) $fallback;
+            }
+        }
+
+        return $eventTs > 0 && $eventTs <= time();
+    }
+
+    /** @param array<string,string> $bookingMeta */
     private function bookingAccommodationFeeAmount(array $bookingMeta): float
     {
         $explicit = max(0.0, (float) ($bookingMeta['gigtune_payment_accommodation_fee'] ?? 0));
@@ -6727,6 +7033,23 @@ HTML;
     {
         $request = $ctx['request'] ?? null;
         return $request instanceof \Illuminate\Http\Request ? $request : null;
+    }
+
+    private function findUserIdByMetaTokenHash(string $metaKey, string $tokenHash): int
+    {
+        $metaKey = trim($metaKey);
+        $tokenHash = trim($tokenHash);
+        if ($metaKey === '' || $tokenHash === '') {
+            return 0;
+        }
+
+        $userId = (int) $this->db()->table($this->um())
+            ->where('meta_key', $metaKey)
+            ->where('meta_value', $tokenHash)
+            ->orderByDesc('umeta_id')
+            ->value('user_id');
+
+        return $userId > 0 ? $userId : 0;
     }
 
     private function latestUserMeta(int $userId, string $key): string

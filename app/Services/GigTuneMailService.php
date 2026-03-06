@@ -52,9 +52,14 @@ class GigTuneMailService
 
     public function sendVerificationEmail(int $userId, string $token): bool
     {
-        $verifyUrl = rtrim((string) config('app.url', ''), '/') . '/verify-email/?token=' . rawurlencode($token);
+        $verifyUrl = rtrim((string) config('app.url', ''), '/') . '/verify-email/?token=' . rawurlencode($token) . '&user_id=' . $userId;
+        $user = $this->users->getUserById($userId);
+        $displayName = trim((string) ($user['display_name'] ?? $user['login'] ?? ''));
+        if ($displayName === '') {
+            $displayName = 'there';
+        }
         $subject = 'GigTune: Verify your email';
-        $intro = 'Hi, please verify your email address to complete your GigTune account setup.';
+        $intro = 'Hi ' . $displayName . ', please verify your email address to complete your GigTune account setup.';
         $footer = ['If you did not create this account, you can safely ignore this email.'];
         $html = $this->renderEmailTemplate('Verify your email', $intro, $verifyUrl, 'Verify email', $footer);
         $text = "Verify your email:\n{$verifyUrl}\n\nThis link expires in 48 hours.";
@@ -64,7 +69,7 @@ class GigTuneMailService
 
     public function sendPasswordResetEmail(int $userId, string $token): bool
     {
-        $resetUrl = rtrim((string) config('app.url', ''), '/') . '/reset-password/?token=' . rawurlencode($token);
+        $resetUrl = rtrim((string) config('app.url', ''), '/') . '/reset-password/?token=' . rawurlencode($token) . '&user_id=' . $userId;
         $subject = 'GigTune: Password reset';
         $intro = 'A password reset was requested for your GigTune account.';
         $footer = ['If you did not request this, you can ignore this email.'];
@@ -282,7 +287,7 @@ class GigTuneMailService
         return '<!doctype html><html><body style="margin:0;padding:24px;background:#0f172a;font-family:Arial,sans-serif;">'
             . '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="max-width:640px;margin:0 auto;background:#111827;border:1px solid rgba(255,255,255,0.1);border-radius:16px;">'
             . '<tr><td style="padding:24px;">'
-            . '<p style="margin:0 0 12px 0;color:#93c5fd;font-size:12px;letter-spacing:.08em;text-transform:uppercase;">GIGTUNE</p>'
+            . '<p style="margin:0 0 12px 0;color:#93c5fd;font-size:12px;letter-spacing:.08em;text-transform:uppercase;">GigTune</p>'
             . '<h1 style="margin:0 0 12px 0;color:#ffffff;font-size:24px;line-height:1.2;">' . $titleEscaped . '</h1>'
             . '<p style="margin:0;color:#cbd5e1;font-size:15px;line-height:1.6;">' . $introEscaped . '</p>'
             . $ctaHtml

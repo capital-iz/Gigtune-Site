@@ -62,7 +62,7 @@
         (function () {
             if (!('serviceWorker' in navigator)) return;
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('/service-worker.js', { scope: '/' }).catch(function () { return null; });
+                navigator.serviceWorker.register('/service-worker.js', { scope: '/admin-dashboard/' }).catch(function () { return null; });
             });
         })();
     </script>

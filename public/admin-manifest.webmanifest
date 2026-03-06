@@ -1,9 +1,9 @@
 ﻿{
-  "id": "/admin-app",
+  "id": "/admin-dashboard/?app=gigtune-admin",
   "name": "GigTune Admin",
   "short_name": "GT Admin",
-  "start_url": "/admin-dashboard/",
-  "scope": "/",
+  "start_url": "/admin-dashboard/?app=gigtune-admin",
+  "scope": "/admin-dashboard/",
   "display": "standalone",
   "background_color": "#020617",
   "theme_color": "#0f172a",

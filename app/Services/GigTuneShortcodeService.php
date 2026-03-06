@@ -70,6 +70,11 @@ class GigTuneShortcodeService
 
     public function render(string $content, ?array $user = null, array $ctx = []): string
     {
+        $this->sweepRetiredClientAccounts(5);
+        if (is_array($user)) {
+            $this->touchClientActivity((int) ($user['id'] ?? 0), $user);
+        }
+
         $content = str_replace(['<!-- wp:shortcode -->', '<!-- /wp:shortcode -->'], '', $content);
 
         return preg_replace_callback('/\[([a-zA-Z0-9_]+)([^\]]*)\]/', function (array $m) use ($user, $ctx): string {
@@ -456,6 +461,7 @@ class GigTuneShortcodeService
             $ids[] = (int) $row->ID;
         }
         $meta = $this->postMetaMap($ids, [
+            'gigtune_client_user_id',
             'gigtune_client_company',
             'gigtune_client_base_area',
             'gigtune_client_photo_id',
@@ -465,6 +471,10 @@ class GigTuneShortcodeService
         foreach ($rows as $row) {
             $id = (int) $row->ID;
             $m = $meta[$id] ?? [];
+            $clientUserId = (int) ($m['gigtune_client_user_id'] ?? 0);
+            if ($clientUserId > 0 && !$this->isClientPublicProfileVisible($clientUserId, null)) {
+                continue;
+            }
             $photo = $this->attachmentUrl((int) ($m['gigtune_client_photo_id'] ?? 0));
             $html .= '<article class="rounded-xl border border-white/10 bg-white/5 p-5">';
             if ($photo !== '') {
@@ -646,6 +656,28 @@ class GigTuneShortcodeService
                         $errorMessage = 'Please select a valid profile banner first.';
                     }
                 }
+            } elseif ((string) $request->input('gigtune_account_delete_submit', '') === '1') {
+                $skipClientProfileSave = true;
+                $confirmText = strtoupper(trim((string) $request->input('gigtune_account_delete_confirm', '')));
+                if ($confirmText !== 'DELETE') {
+                    $errorMessage = 'Type DELETE to confirm account deletion.';
+                } else {
+                    try {
+                        $this->deleteCurrentUserAccount($uid);
+                        if ($request !== null) {
+                            $request->session()->forget([
+                                'gigtune_auth_user_id',
+                                'gigtune_auth_logged_in_at',
+                                'gigtune_auth_remember',
+                            ]);
+                            $request->session()->invalidate();
+                            $request->session()->regenerateToken();
+                        }
+                        return $this->redirectInline('/?account_deleted=1');
+                    } catch (\Throwable $throwable) {
+                        $errorMessage = trim($throwable->getMessage()) !== '' ? trim($throwable->getMessage()) : 'Unable to delete account right now.';
+                    }
+                }
             } elseif ((string) $request->input('gigtune_client_account_submit', '') === '1') {
                 $skipClientProfileSave = true;
                 $newEmail = strtolower(trim((string) $request->input('gigtune_account_email', '')));
@@ -699,6 +731,15 @@ class GigTuneShortcodeService
             if ($country === '') {
                 $country = 'South Africa';
             }
+            $showCityPublic = (string) $request->input('gigtune_client_public_show_city', '') === '1' ? '1' : '0';
+            $showSuburbPublic = (string) $request->input('gigtune_client_public_show_suburb', '') === '1' ? '1' : '0';
+            $showStreetPublic = (string) $request->input('gigtune_client_public_show_street', '') === '1' ? '1' : '0';
+            $showPostalPublic = (string) $request->input('gigtune_client_public_show_postcode', '') === '1' ? '1' : '0';
+            $visibilityReason = strtolower(trim((string) $request->input('gigtune_client_profile_visibility_reason', 'public')));
+            if (!in_array($visibilityReason, ['public', 'temporary', 'no_longer_useful'], true)) {
+                $visibilityReason = 'public';
+            }
+            $visibilityWeeks = max(1, min(5, (int) $request->input('gigtune_client_profile_visibility_weeks', 1)));
             $company = trim((string) $request->input('gigtune_client_company', ''));
             $phone = trim((string) $request->input('gigtune_client_phone', ''));
             $bankAccountName = trim((string) $request->input('gigtune_client_bank_account_name', ''));
@@ -743,11 +784,42 @@ class GigTuneShortcodeService
                 $this->upsertPostMeta($profileId, 'gigtune_client_address_country', $country);
                 $this->upsertPostMeta($profileId, 'gigtune_client_company', $company);
                 $this->upsertPostMeta($profileId, 'gigtune_client_phone', $phone);
+                $this->upsertPostMeta($profileId, 'gigtune_client_public_show_city', $showCityPublic);
+                $this->upsertPostMeta($profileId, 'gigtune_client_public_show_suburb', $showSuburbPublic);
+                $this->upsertPostMeta($profileId, 'gigtune_client_public_show_street', $showStreetPublic);
+                $this->upsertPostMeta($profileId, 'gigtune_client_public_show_postcode', $showPostalPublic);
                 $this->upsertPostMeta($profileId, 'gigtune_client_bank_account_name', $bankAccountName);
                 $this->upsertPostMeta($profileId, 'gigtune_client_bank_account_number', $bankAccountNumber);
                 $this->upsertPostMeta($profileId, 'gigtune_client_bank_name', $bankName);
                 $this->upsertPostMeta($profileId, 'gigtune_client_branch_code', $branchCode);
                 $this->upsertPostMeta($profileId, 'gigtune_client_bank_code', $branchCode);
+
+                $nowTs = (string) time();
+                $this->upsertUserMeta($uid, 'gigtune_client_last_activity_at', $nowTs);
+                if ($visibilityReason === 'public') {
+                    $this->upsertUserMeta($uid, 'gigtune_client_public_visibility_mode', 'public');
+                    $this->upsertUserMeta($uid, 'gigtune_client_public_visibility_reason', 'public');
+                    $this->upsertUserMeta($uid, 'gigtune_client_public_visibility_weeks', '0');
+                    $this->upsertUserMeta($uid, 'gigtune_client_public_hidden_until', '0');
+                    $this->upsertUserMeta($uid, 'gigtune_client_retire_marked_at', '0');
+                } elseif ($visibilityReason === 'temporary') {
+                    $hiddenUntil = time() + ($visibilityWeeks * 7 * 24 * 60 * 60);
+                    $this->upsertUserMeta($uid, 'gigtune_client_public_visibility_mode', 'temporary');
+                    $this->upsertUserMeta($uid, 'gigtune_client_public_visibility_reason', 'temporary');
+                    $this->upsertUserMeta($uid, 'gigtune_client_public_visibility_weeks', (string) $visibilityWeeks);
+                    $this->upsertUserMeta($uid, 'gigtune_client_public_hidden_until', (string) $hiddenUntil);
+                    $this->upsertUserMeta($uid, 'gigtune_client_retire_marked_at', '0');
+                } else {
+                    $retireMarkedAt = (int) $this->latestUserMeta($uid, 'gigtune_client_retire_marked_at');
+                    if ($retireMarkedAt <= 0) {
+                        $retireMarkedAt = time();
+                    }
+                    $this->upsertUserMeta($uid, 'gigtune_client_public_visibility_mode', 'retired');
+                    $this->upsertUserMeta($uid, 'gigtune_client_public_visibility_reason', 'no_longer_useful');
+                    $this->upsertUserMeta($uid, 'gigtune_client_public_visibility_weeks', '0');
+                    $this->upsertUserMeta($uid, 'gigtune_client_public_hidden_until', '0');
+                    $this->upsertUserMeta($uid, 'gigtune_client_retire_marked_at', (string) $retireMarkedAt);
+                }
 
                 $photoFile = $request->file('gt_profile_photo_file');
                 if (!($photoFile instanceof UploadedFile)) {
@@ -808,6 +880,10 @@ class GigTuneShortcodeService
             'gigtune_client_address_city',
             'gigtune_client_address_postal_code',
             'gigtune_client_address_country',
+            'gigtune_client_public_show_city',
+            'gigtune_client_public_show_suburb',
+            'gigtune_client_public_show_street',
+            'gigtune_client_public_show_postcode',
             'gigtune_client_company',
             'gigtune_client_phone',
             'gigtune_client_bank_account_name',
@@ -822,6 +898,17 @@ class GigTuneShortcodeService
         if ($branchCode === '') {
             $branchCode = (string) ($meta['gigtune_client_bank_code'] ?? '');
         }
+        $publicShowCity = (string) ($meta['gigtune_client_public_show_city'] ?? '1') !== '0';
+        $publicShowSuburb = (string) ($meta['gigtune_client_public_show_suburb'] ?? '1') !== '0';
+        $publicShowStreet = (string) ($meta['gigtune_client_public_show_street'] ?? '1') !== '0';
+        $publicShowPostcode = (string) ($meta['gigtune_client_public_show_postcode'] ?? '1') !== '0';
+        $visibilityReason = strtolower(trim($this->latestUserMeta($uid, 'gigtune_client_public_visibility_reason')));
+        if (!in_array($visibilityReason, ['public', 'temporary', 'no_longer_useful'], true)) {
+            $visibilityReason = 'public';
+        }
+        $visibilityWeeks = max(1, min(5, (int) $this->latestUserMeta($uid, 'gigtune_client_public_visibility_weeks')));
+        $hiddenUntilTs = (int) $this->latestUserMeta($uid, 'gigtune_client_public_hidden_until');
+        $retireMarkedAtTs = (int) $this->latestUserMeta($uid, 'gigtune_client_retire_marked_at');
         $photoUrl = $this->attachmentUrl((int) ($meta['gigtune_client_photo_id'] ?? 0));
         $bannerUrl = $this->attachmentUrl((int) ($meta['gigtune_client_banner_id'] ?? 0));
         $clientPhotoHidden = $photoUrl === '' ? ' hidden' : '';
@@ -880,6 +967,32 @@ class GigTuneShortcodeService
         $html .= '<div><label class="mb-1 block text-sm text-slate-300">Suburb</label><input name="gigtune_client_address_suburb" value="' . e((string) ($meta['gigtune_client_address_suburb'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
         $html .= '<div><label class="mb-1 block text-sm text-slate-300">Postcode</label><input required name="gigtune_client_address_postal_code" value="' . e((string) ($meta['gigtune_client_address_postal_code'] ?? '')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
         $html .= '<div><label class="mb-1 block text-sm text-slate-300">Country</label><input required name="gigtune_client_address_country" value="' . e((string) (($meta['gigtune_client_address_country'] ?? '') !== '' ? ($meta['gigtune_client_address_country'] ?? '') : 'South Africa')) . '" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
+        $html .= '<div class="md:col-span-2 rounded-xl border border-white/10 bg-black/20 p-4">';
+        $html .= '<p class="text-sm font-semibold text-white">Public profile display</p>';
+        $html .= '<p class="mt-1 text-xs text-slate-400">Base area and company are always shown. Toggle address fields below.</p>';
+        $html .= '<div class="mt-3 grid gap-2 md:grid-cols-2">';
+        $html .= '<label class="inline-flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" name="gigtune_client_public_show_city" value="1"' . ($publicShowCity ? ' checked' : '') . '> Show Town/City</label>';
+        $html .= '<label class="inline-flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" name="gigtune_client_public_show_suburb" value="1"' . ($publicShowSuburb ? ' checked' : '') . '> Show Suburb</label>';
+        $html .= '<label class="inline-flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" name="gigtune_client_public_show_street" value="1"' . ($publicShowStreet ? ' checked' : '') . '> Show Street address</label>';
+        $html .= '<label class="inline-flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" name="gigtune_client_public_show_postcode" value="1"' . ($publicShowPostcode ? ' checked' : '') . '> Show Postcode</label>';
+        $html .= '</div>';
+        $html .= '<div class="mt-4 grid gap-3 md:grid-cols-2">';
+        $html .= '<div><label class="mb-1 block text-sm text-slate-300">Public profile visibility</label><select id="gt-client-visibility-reason" name="gigtune_client_profile_visibility_reason" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"><option value="public"' . ($visibilityReason === 'public' ? ' selected' : '') . '>Visible</option><option value="temporary"' . ($visibilityReason === 'temporary' ? ' selected' : '') . '>Temporary hide</option><option value="no_longer_useful"' . ($visibilityReason === 'no_longer_useful' ? ' selected' : '') . '>No longer useful</option></select></div>';
+        $html .= '<div id="gt-client-visibility-weeks-wrap"' . ($visibilityReason === 'temporary' ? '' : ' style="display:none"') . '><label class="mb-1 block text-sm text-slate-300">Hide duration (weeks)</label><select name="gigtune_client_profile_visibility_weeks" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white">';
+        for ($week = 1; $week <= 5; $week++) {
+            $html .= '<option value="' . $week . '"' . ($visibilityWeeks === $week ? ' selected' : '') . '>' . $week . ' week' . ($week > 1 ? 's' : '') . '</option>';
+        }
+        $html .= '</select></div>';
+        $html .= '</div>';
+        $html .= '<div id="gt-client-visibility-retire-note" class="mt-3 rounded-lg border border-rose-500/30 bg-rose-500/10 p-3 text-xs text-rose-200"' . ($visibilityReason === 'no_longer_useful' ? '' : ' style="display:none"') . '>No longer useful: if this account has no activity for 30 days, it will be permanently deleted and all associated data will be removed.</div>';
+        if ($visibilityReason === 'temporary' && $hiddenUntilTs > time()) {
+            $html .= '<div class="mt-2 text-xs text-slate-300">Temporary hide active until ' . e(date('M j, Y H:i', $hiddenUntilTs)) . '.</div>';
+        }
+        if ($visibilityReason === 'no_longer_useful' && $retireMarkedAtTs > 0) {
+            $deleteAtTs = $retireMarkedAtTs + (30 * 24 * 60 * 60);
+            $html .= '<div class="mt-2 text-xs text-slate-300">Account retirement timer started. Deletion date: ' . e(date('M j, Y H:i', $deleteAtTs)) . ' (unless activity resumes).</div>';
+        }
+        $html .= '</div>';
         $html .= '<div class="md:col-span-2"><label class="mb-1 block text-sm text-slate-300">Bio *</label><textarea required name="gigtune_client_bio" rows="4" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white">' . e((string) ($post->post_content ?? '')) . '</textarea></div>';
         $html .= '</div>';
 
@@ -899,6 +1012,13 @@ class GigTuneShortcodeService
         $html .= '<div><label class="mb-1 block text-sm text-slate-300">Confirm new password</label><input type="password" name="gigtune_account_password_confirm" autocomplete="new-password" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
         $html .= '</div>';
         $html .= '<div class="mt-3"><button type="submit" name="gigtune_client_account_submit" value="1" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/15">Save account settings</button></div>';
+        $html .= '<div class="mt-5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4">';
+        $html .= '<p class="text-sm font-semibold text-rose-200">Delete account</p>';
+        $html .= '<p class="mt-1 text-xs text-rose-100/90">This permanently removes your account and associated profile data. Type DELETE to confirm.</p>';
+        $html .= '<div class="mt-3 flex flex-wrap items-end gap-2">';
+        $html .= '<div class="min-w-[220px] flex-1"><label class="mb-1 block text-xs text-rose-100">Confirmation</label><input type="text" name="gigtune_account_delete_confirm" placeholder="DELETE" class="w-full rounded-lg border border-rose-400/40 bg-slate-950/60 px-3 py-2 text-sm text-white"></div>';
+        $html .= '<button type="submit" formnovalidate name="gigtune_account_delete_submit" value="1" class="inline-flex items-center justify-center rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-500">Delete account permanently</button>';
+        $html .= '</div></div>';
         $html .= '</div>';
 
         $html .= '<div class="flex flex-wrap gap-2">';
@@ -906,6 +1026,7 @@ class GigTuneShortcodeService
         $html .= '<a class="rounded-md border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200" href="/client-profile/?client_profile_id=' . (int) $profileId . '">Preview profile</a>';
         $html .= '</div>';
         $html .= '</form>';
+        $html .= '<script>(function(){var select=document.getElementById("gt-client-visibility-reason");if(!select){return;}var weeks=document.getElementById("gt-client-visibility-weeks-wrap");var retire=document.getElementById("gt-client-visibility-retire-note");var update=function(){var value=(select.value||"").toLowerCase();if(weeks){weeks.style.display=value==="temporary"?"":"none";}if(retire){retire.style.display=value==="no_longer_useful"?"":"none";}};select.addEventListener("change",update);update();})();</script>';
         $html .= $this->renderProfileMediaEnhancementsScript();
 
         return $html;
@@ -914,9 +1035,30 @@ class GigTuneShortcodeService
     private function publicClientProfile(array $a, ?array $u, array $ctx = []): string
     {
         $request = $this->req($ctx);
+        $clientUserIdParam = (int) ($a['client_user_id'] ?? 0);
+        if ($clientUserIdParam <= 0) {
+            $clientUserIdParam = (int) ($request?->query('client_user_id', 0) ?? 0);
+        }
         $profileId = (int) ($a['client_profile_id'] ?? 0);
         if ($profileId <= 0) {
             $profileId = (int) ($request?->query('client_profile_id', 0) ?? 0);
+        }
+        if ($profileId <= 0 && $clientUserIdParam > 0) {
+            $profileId = $this->latestUserMetaInt($clientUserIdParam, 'gigtune_client_profile_id');
+            if ($profileId <= 0) {
+                $profileId = (int) $this->db()->table($this->posts() . ' as p')
+                    ->where('p.post_type', 'gt_client_profile')
+                    ->where('p.post_status', 'publish')
+                    ->whereExists(function ($q) use ($clientUserIdParam): void {
+                        $q->selectRaw('1')
+                            ->from($this->pm() . ' as pm')
+                            ->whereColumn('pm.post_id', 'p.ID')
+                            ->where('pm.meta_key', 'gigtune_client_user_id')
+                            ->where('pm.meta_value', (string) $clientUserIdParam);
+                    })
+                    ->orderByDesc('p.ID')
+                    ->value('p.ID');
+            }
         }
         if ($profileId <= 0 && is_array($u)) {
             $profileId = $this->latestUserMetaInt((int) ($u['id'] ?? 0), 'gigtune_client_profile_id');
@@ -940,6 +1082,15 @@ class GigTuneShortcodeService
             'gigtune_client_company',
             'gigtune_client_organisation',
             'gigtune_client_base_area',
+            'gigtune_client_province',
+            'gigtune_client_address_street',
+            'gigtune_client_address_suburb',
+            'gigtune_client_address_city',
+            'gigtune_client_address_postal_code',
+            'gigtune_client_public_show_city',
+            'gigtune_client_public_show_suburb',
+            'gigtune_client_public_show_street',
+            'gigtune_client_public_show_postcode',
             'gigtune_client_photo_id',
             'gigtune_client_banner_id',
         ])[$profileId] ?? [];
@@ -949,7 +1100,19 @@ class GigTuneShortcodeService
         $company = trim((string) ($meta['gigtune_client_company'] ?? ''));
         $organisation = trim((string) ($meta['gigtune_client_organisation'] ?? ''));
         $baseArea = trim((string) ($meta['gigtune_client_base_area'] ?? ''));
+        $province = trim((string) ($meta['gigtune_client_province'] ?? ''));
+        $addressStreet = trim((string) ($meta['gigtune_client_address_street'] ?? ''));
+        $addressSuburb = trim((string) ($meta['gigtune_client_address_suburb'] ?? ''));
+        $addressCity = trim((string) (($meta['gigtune_client_address_city'] ?? '') !== '' ? ($meta['gigtune_client_address_city'] ?? '') : ($meta['gigtune_client_city'] ?? '')));
+        $addressPostcode = trim((string) ($meta['gigtune_client_address_postal_code'] ?? ''));
+        $showCityPublic = (string) ($meta['gigtune_client_public_show_city'] ?? '1') !== '0';
+        $showSuburbPublic = (string) ($meta['gigtune_client_public_show_suburb'] ?? '1') !== '0';
+        $showStreetPublic = (string) ($meta['gigtune_client_public_show_street'] ?? '1') !== '0';
+        $showPostcodePublic = (string) ($meta['gigtune_client_public_show_postcode'] ?? '1') !== '0';
         $profileName = trim((string) ($post->post_title ?? ''));
+        if ($clientUserId > 0 && !$this->isClientPublicProfileVisible($clientUserId, $u)) {
+            return '<div class="rounded-xl border border-white/10 bg-white/5 p-4 text-sm text-slate-200">This client profile is currently hidden.</div>';
+        }
 
         $ratingsAvg = 0.0;
         $ratingsCount = 0;
@@ -1056,6 +1219,25 @@ class GigTuneShortcodeService
         $html .= '<div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">';
         $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-3"><div class="text-slate-400 text-xs">Completed bookings</div><div class="mt-1 font-semibold text-white">' . e((string) $completedBookings) . '</div></div>';
         $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-3"><div class="text-slate-400 text-xs">Client rating</div><div class="mt-1 font-semibold text-white">' . e($ratingDisplay) . ' <span class="font-normal text-slate-400">(' . e($ratingCountDisplay) . ')</span></div></div>';
+        if ($company !== '' && mb_strtolower($company) !== mb_strtolower($profileName)) {
+            $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-3"><div class="text-slate-400 text-xs">Company</div><div class="mt-1 font-semibold text-white">' . e($company) . '</div></div>';
+        }
+        if ($baseArea !== '') {
+            $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-3"><div class="text-slate-400 text-xs">Base area</div><div class="mt-1 font-semibold text-white">' . e($baseArea) . '</div></div>';
+        }
+        if ($showCityPublic && $addressCity !== '') {
+            $cityLabel = $province !== '' ? ($addressCity . ', ' . $province) : $addressCity;
+            $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-3"><div class="text-slate-400 text-xs">Town/City</div><div class="mt-1 font-semibold text-white">' . e($cityLabel) . '</div></div>';
+        }
+        if ($showSuburbPublic && $addressSuburb !== '') {
+            $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-3"><div class="text-slate-400 text-xs">Suburb</div><div class="mt-1 font-semibold text-white">' . e($addressSuburb) . '</div></div>';
+        }
+        if ($showStreetPublic && $addressStreet !== '') {
+            $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-3"><div class="text-slate-400 text-xs">Street address</div><div class="mt-1 font-semibold text-white">' . e($addressStreet) . '</div></div>';
+        }
+        if ($showPostcodePublic && $addressPostcode !== '') {
+            $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-3"><div class="text-slate-400 text-xs">Postcode</div><div class="mt-1 font-semibold text-white">' . e($addressPostcode) . '</div></div>';
+        }
         if ($organisation !== '' && mb_strtolower($organisation) !== mb_strtolower($profileName)) {
             $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-3"><div class="text-slate-400 text-xs">Organisation</div><div class="mt-1 font-semibold text-white">' . e($organisation) . '</div></div>';
         }
@@ -1296,6 +1478,28 @@ class GigTuneShortcodeService
                         $statusMessage = 'Profile banner updated.';
                     } else {
                         $errorMessage = 'Please select a valid profile banner first.';
+                    }
+                }
+            } elseif ((string) $request->input('gigtune_account_delete_submit', '') === '1') {
+                $skipArtistProfileSave = true;
+                $confirmText = strtoupper(trim((string) $request->input('gigtune_account_delete_confirm', '')));
+                if ($confirmText !== 'DELETE') {
+                    $errorMessage = 'Type DELETE to confirm account deletion.';
+                } else {
+                    try {
+                        $this->deleteCurrentUserAccount($uid);
+                        if ($request !== null) {
+                            $request->session()->forget([
+                                'gigtune_auth_user_id',
+                                'gigtune_auth_logged_in_at',
+                                'gigtune_auth_remember',
+                            ]);
+                            $request->session()->invalidate();
+                            $request->session()->regenerateToken();
+                        }
+                        return $this->redirectInline('/?account_deleted=1');
+                    } catch (\Throwable $throwable) {
+                        $errorMessage = trim($throwable->getMessage()) !== '' ? trim($throwable->getMessage()) : 'Unable to delete account right now.';
                     }
                 }
             } elseif ((string) $request->input('gigtune_artist_account_submit', '') === '1') {
@@ -1853,6 +2057,13 @@ class GigTuneShortcodeService
         $html .= '<div><label class="mb-1 block text-sm text-slate-300">Confirm new password</label><input type="password" name="gigtune_account_password_confirm" autocomplete="new-password" class="w-full rounded-xl border border-white/10 bg-slate-950/50 px-4 py-3 text-white"></div>';
         $html .= '</div>';
         $html .= '<div class="mt-3"><button type="submit" name="gigtune_artist_account_submit" value="1" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-4 py-2 text-sm font-semibold text-white hover:bg-white/15">Save account settings</button></div>';
+        $html .= '<div class="mt-5 rounded-xl border border-rose-500/30 bg-rose-500/10 p-4">';
+        $html .= '<p class="text-sm font-semibold text-rose-200">Delete account</p>';
+        $html .= '<p class="mt-1 text-xs text-rose-100/90">This permanently removes your account and associated profile data. Type DELETE to confirm.</p>';
+        $html .= '<div class="mt-3 flex flex-wrap items-end gap-2">';
+        $html .= '<div class="min-w-[220px] flex-1"><label class="mb-1 block text-xs text-rose-100">Confirmation</label><input type="text" name="gigtune_account_delete_confirm" placeholder="DELETE" class="w-full rounded-lg border border-rose-400/40 bg-slate-950/60 px-3 py-2 text-sm text-white"></div>';
+        $html .= '<button type="submit" formnovalidate name="gigtune_account_delete_submit" value="1" class="inline-flex items-center justify-center rounded-lg bg-rose-600 px-4 py-2 text-sm font-semibold text-white hover:bg-rose-500">Delete account permanently</button>';
+        $html .= '</div></div>';
         $html .= '</div>';
 
         $html .= '<div class="flex flex-wrap gap-2"><button type="submit" class="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Save profile</button><a class="rounded-md border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200" href="/artist-profile/?artist_id=' . (int) $profileId . '">Preview profile</a></div>';
@@ -6455,6 +6666,478 @@ HTML;
         }
 
         return $missing;
+    }
+
+    private function isClientPublicProfileVisible(int $clientUserId, ?array $viewer): bool
+    {
+        $clientUserId = abs($clientUserId);
+        if ($clientUserId <= 0) {
+            return true;
+        }
+
+        $viewerId = (int) ($viewer['id'] ?? 0);
+        if ($viewerId > 0 && $viewerId === $clientUserId) {
+            return true;
+        }
+        if ((bool) ($viewer['is_admin'] ?? false)) {
+            return true;
+        }
+
+        $mode = strtolower(trim($this->latestUserMeta($clientUserId, 'gigtune_client_public_visibility_mode')));
+        $reason = strtolower(trim($this->latestUserMeta($clientUserId, 'gigtune_client_public_visibility_reason')));
+        if ($mode === '') {
+            if ($reason === 'temporary') {
+                $mode = 'temporary';
+            } elseif ($reason === 'no_longer_useful') {
+                $mode = 'retired';
+            } else {
+                $mode = 'public';
+            }
+        }
+
+        if (in_array($mode, ['public', 'visible', 'force_visible'], true)) {
+            return true;
+        }
+
+        if ($mode === 'temporary') {
+            $hiddenUntil = (int) $this->latestUserMeta($clientUserId, 'gigtune_client_public_hidden_until');
+            if ($hiddenUntil > 0 && time() >= $hiddenUntil) {
+                $this->restoreClientPublicVisibilityDefaults($clientUserId);
+                return true;
+            }
+            return false;
+        }
+
+        if ($mode === 'retired') {
+            return false;
+        }
+
+        return true;
+    }
+
+    private function touchClientActivity(int $userId, array $user): void
+    {
+        $userId = abs($userId);
+        if ($userId <= 0) {
+            return;
+        }
+
+        $roles = [];
+        foreach ((array) ($user['roles'] ?? []) as $role) {
+            $roles[] = strtolower(trim((string) $role));
+        }
+        $isClient = in_array('gigtune_client', $roles, true) || $this->latestUserMetaInt($userId, 'gigtune_client_profile_id') > 0;
+        if (!$isClient) {
+            return;
+        }
+
+        $now = time();
+        $this->upsertUserMeta($userId, 'gigtune_client_last_activity_at', (string) $now);
+
+        $mode = strtolower(trim($this->latestUserMeta($userId, 'gigtune_client_public_visibility_mode')));
+        $reason = strtolower(trim($this->latestUserMeta($userId, 'gigtune_client_public_visibility_reason')));
+        if ($mode === 'retired' || $reason === 'no_longer_useful') {
+            $this->restoreClientPublicVisibilityDefaults($userId);
+            return;
+        }
+
+        if ($mode === 'temporary') {
+            $hiddenUntil = (int) $this->latestUserMeta($userId, 'gigtune_client_public_hidden_until');
+            if ($hiddenUntil > 0 && $now >= $hiddenUntil) {
+                $this->restoreClientPublicVisibilityDefaults($userId);
+            }
+        }
+    }
+
+    private function sweepRetiredClientAccounts(int $limit = 5): void
+    {
+        $limit = max(1, min(25, $limit));
+        $now = time();
+        $retentionSeconds = 30 * 86400;
+
+        try {
+            $rows = $this->db()->table($this->um())
+                ->where('meta_key', 'gigtune_client_public_visibility_mode')
+                ->where('meta_value', 'retired')
+                ->orderByDesc('umeta_id')
+                ->limit($limit * 6)
+                ->pluck('user_id')
+                ->all();
+        } catch (\Throwable) {
+            return;
+        }
+
+        if (!is_array($rows) || $rows === []) {
+            return;
+        }
+
+        $userIds = [];
+        foreach ($rows as $row) {
+            $id = abs((int) $row);
+            if ($id > 0) {
+                $userIds[] = $id;
+            }
+        }
+        $userIds = array_slice(array_values(array_unique($userIds)), 0, $limit);
+        foreach ($userIds as $userId) {
+            $mode = strtolower(trim($this->latestUserMeta($userId, 'gigtune_client_public_visibility_mode')));
+            if ($mode !== 'retired') {
+                continue;
+            }
+
+            $exists = $this->db()->table($this->usersTable())->where('ID', $userId)->exists();
+            if (!$exists) {
+                continue;
+            }
+
+            $retireMarkedAt = (int) $this->latestUserMeta($userId, 'gigtune_client_retire_marked_at');
+            if ($retireMarkedAt <= 0) {
+                $retireMarkedAt = $now;
+                $this->upsertUserMeta($userId, 'gigtune_client_retire_marked_at', (string) $retireMarkedAt);
+                continue;
+            }
+
+            $lastActivityAt = (int) $this->latestUserMeta($userId, 'gigtune_client_last_activity_at');
+            if ($lastActivityAt > $retireMarkedAt) {
+                $this->restoreClientPublicVisibilityDefaults($userId);
+                continue;
+            }
+
+            if (($retireMarkedAt + $retentionSeconds) > $now) {
+                continue;
+            }
+
+            try {
+                $this->deleteCurrentUserAccount($userId);
+            } catch (\Throwable $throwable) {
+                logger()->warning('Client retirement auto-delete skipped', [
+                    'user_id' => $userId,
+                    'error' => trim($throwable->getMessage()),
+                ]);
+            }
+        }
+    }
+
+    private function restoreClientPublicVisibilityDefaults(int $userId): void
+    {
+        $userId = abs($userId);
+        if ($userId <= 0) {
+            return;
+        }
+
+        $this->upsertUserMeta($userId, 'gigtune_client_public_visibility_mode', 'public');
+        $this->upsertUserMeta($userId, 'gigtune_client_public_visibility_reason', 'public');
+        $this->upsertUserMeta($userId, 'gigtune_client_public_visibility_weeks', '0');
+        $this->upsertUserMeta($userId, 'gigtune_client_public_hidden_until', '0');
+        $this->upsertUserMeta($userId, 'gigtune_client_retire_marked_at', '0');
+    }
+
+    private function deleteCurrentUserAccount(int $userId): void
+    {
+        $userId = abs($userId);
+        if ($userId <= 0) {
+            throw new \InvalidArgumentException('Invalid user account.');
+        }
+
+        $user = $this->users->getUserById($userId);
+        if (!is_array($user)) {
+            throw new \RuntimeException('Account no longer exists.');
+        }
+        if ((bool) ($user['is_admin'] ?? false)) {
+            throw new \RuntimeException('Administrator account cannot be deleted here.');
+        }
+
+        $blockers = $this->accountDeleteBlockers($userId);
+        if ($blockers !== []) {
+            throw new \RuntimeException('Deletion blocked: ' . implode(', ', $blockers) . '.');
+        }
+
+        $this->cleanupUserLinkedProfiles($userId);
+        $this->cleanupUserLinkedPosts($userId);
+        $this->users->deleteUserHard($userId);
+    }
+
+    /** @return array<int,string> */
+    private function accountDeleteBlockers(int $userId): array
+    {
+        $userId = abs($userId);
+        if ($userId <= 0) {
+            return [];
+        }
+
+        $activeStatuses = [
+            'REQUESTED',
+            'ACCEPTED_PENDING_PAYMENT',
+            'AWAITING_PAYMENT_CONFIRMATION',
+            'PAID_ESCROWED',
+            'PAID_TEMPORARY_HOLDING',
+            'COMPLETED_BY_ARTIST',
+            'DISPUTE_OPEN',
+        ];
+        $pendingPayoutStatuses = ['PENDING_MANUAL', 'PENDING', 'INITIATED'];
+        $artistProfileId = $this->resolveArtistProfileIdForUser($userId);
+        $blockers = [];
+
+        if ($this->bookingExistsForMetaPair(
+            ['gigtune_booking_client_user_id' => (string) $userId],
+            ['gigtune_booking_status' => $activeStatuses]
+        )) {
+            $blockers[] = 'Active bookings';
+        }
+
+        if ($artistProfileId > 0 && $this->bookingExistsForMetaPair(
+            ['gigtune_booking_artist_profile_id' => (string) $artistProfileId],
+            ['gigtune_booking_status' => $activeStatuses]
+        )) {
+            $blockers[] = 'Active bookings';
+        }
+
+        if ($artistProfileId > 0 && $this->bookingExistsForMetaPair(
+            ['gigtune_booking_artist_profile_id' => (string) $artistProfileId],
+            ['gigtune_payout_status' => $pendingPayoutStatuses]
+        )) {
+            $blockers[] = 'Pending payouts';
+        }
+
+        $hasClientDispute = $this->bookingExistsForMetaPair(
+            ['gigtune_booking_client_user_id' => (string) $userId],
+            ['gigtune_dispute_raised' => ['1']]
+        ) || $this->bookingExistsForMetaPair(
+            ['gigtune_booking_client_user_id' => (string) $userId],
+            ['gigtune_booking_status' => ['DISPUTE_OPEN']]
+        );
+
+        $hasArtistDispute = false;
+        if ($artistProfileId > 0) {
+            $hasArtistDispute = $this->bookingExistsForMetaPair(
+                ['gigtune_booking_artist_profile_id' => (string) $artistProfileId],
+                ['gigtune_dispute_raised' => ['1']]
+            ) || $this->bookingExistsForMetaPair(
+                ['gigtune_booking_artist_profile_id' => (string) $artistProfileId],
+                ['gigtune_booking_status' => ['DISPUTE_OPEN']]
+            );
+        }
+
+        if ($hasClientDispute || $hasArtistDispute) {
+            $blockers[] = 'Open disputes';
+        }
+
+        return array_values(array_unique($blockers));
+    }
+
+    private function bookingExistsForMetaPair(array $requiredMeta, array $statusMeta): bool
+    {
+        $query = $this->db()->table($this->posts() . ' as p')
+            ->where('p.post_type', 'gigtune_booking');
+
+        foreach ($requiredMeta as $metaKey => $metaValue) {
+            $query->whereExists(function ($sub) use ($metaKey, $metaValue): void {
+                $sub->selectRaw('1')
+                    ->from($this->pm() . ' as pm')
+                    ->whereColumn('pm.post_id', 'p.ID')
+                    ->where('pm.meta_key', $metaKey)
+                    ->where('pm.meta_value', (string) $metaValue);
+            });
+        }
+
+        foreach ($statusMeta as $metaKey => $metaValues) {
+            $values = [];
+            foreach ((array) $metaValues as $value) {
+                $normalized = trim((string) $value);
+                if ($normalized !== '') {
+                    $values[] = $normalized;
+                }
+            }
+            if ($values === []) {
+                continue;
+            }
+
+            $query->whereExists(function ($sub) use ($metaKey, $values): void {
+                $sub->selectRaw('1')
+                    ->from($this->pm() . ' as pm')
+                    ->whereColumn('pm.post_id', 'p.ID')
+                    ->where('pm.meta_key', $metaKey)
+                    ->whereIn('pm.meta_value', $values);
+            });
+        }
+
+        return $query->exists();
+    }
+
+    private function cleanupUserLinkedProfiles(int $userId): void
+    {
+        $userId = abs($userId);
+        if ($userId <= 0) {
+            return;
+        }
+
+        $artistProfileId = $this->resolveArtistProfileIdForUser($userId);
+        if ($artistProfileId > 0 && $this->isPostType($artistProfileId, 'artist_profile')) {
+            $artistMeta = $this->postMetaMap([$artistProfileId], ['gigtune_artist_photo_id', 'gigtune_artist_banner_id'])[$artistProfileId] ?? [];
+            $artistPhotoId = (int) ($artistMeta['gigtune_artist_photo_id'] ?? 0);
+            $artistBannerId = (int) ($artistMeta['gigtune_artist_banner_id'] ?? 0);
+            if ($artistPhotoId > 0) {
+                $this->deleteAttachment($artistPhotoId);
+            }
+            if ($artistBannerId > 0 && $artistBannerId !== $artistPhotoId) {
+                $this->deleteAttachment($artistBannerId);
+            }
+            $this->deletePostHard($artistProfileId);
+        }
+
+        $clientProfileId = $this->latestUserMetaInt($userId, 'gigtune_client_profile_id');
+        if ($clientProfileId <= 0) {
+            $clientProfileId = $this->findPostIdByTypeAndMeta('gt_client_profile', 'gigtune_client_user_id', (string) $userId);
+        }
+        if ($clientProfileId > 0 && $this->isPostType($clientProfileId, 'gt_client_profile')) {
+            $clientMeta = $this->postMetaMap([$clientProfileId], ['gigtune_client_photo_id', 'gigtune_client_banner_id'])[$clientProfileId] ?? [];
+            $clientPhotoId = (int) ($clientMeta['gigtune_client_photo_id'] ?? 0);
+            $clientBannerId = (int) ($clientMeta['gigtune_client_banner_id'] ?? 0);
+            if ($clientPhotoId > 0) {
+                $this->deleteAttachment($clientPhotoId);
+            }
+            if ($clientBannerId > 0 && $clientBannerId !== $clientPhotoId) {
+                $this->deleteAttachment($clientBannerId);
+            }
+            $this->deletePostHard($clientProfileId);
+        }
+    }
+
+    private function cleanupUserLinkedPosts(int $userId): void
+    {
+        $userId = abs($userId);
+        if ($userId <= 0) {
+            return;
+        }
+
+        $purgeTypes = [
+            'gigtune_psa',
+            'gigtune_message',
+            'gigtune_notification',
+            'gigtune_dispute',
+            'gt_client_rating',
+            'gt_kyc_submission',
+            'gigtune_kyc_submission',
+            'gigtune_kyc_submissi',
+        ];
+
+        $ids = $this->db()->table($this->posts())
+            ->whereIn('post_type', $purgeTypes)
+            ->where('post_author', $userId)
+            ->pluck('ID')
+            ->map(static fn ($id): int => (int) $id)
+            ->all();
+
+        $metaLinkedIds = $this->db()->table($this->posts() . ' as p')
+            ->join($this->pm() . ' as pm', 'pm.post_id', '=', 'p.ID')
+            ->whereIn('p.post_type', $purgeTypes)
+            ->whereIn('pm.meta_key', [
+                'gigtune_psa_client_user_id',
+                'gigtune_message_sender_user_id',
+                'gigtune_message_recipient_user_id',
+                'gigtune_notification_recipient_user_id',
+                'gigtune_notification_user_id',
+                'recipient_user_id',
+                'gigtune_dispute_initiator_user_id',
+                'gigtune_kyc_user_id',
+                'gigtune_kyc_submission_user_id',
+                'gigtune_client_rating_client_user_id',
+            ])
+            ->where('pm.meta_value', (string) $userId)
+            ->pluck('p.ID')
+            ->map(static fn ($id): int => (int) $id)
+            ->all();
+
+        $this->deletePostsHard(array_merge($ids, $metaLinkedIds));
+    }
+
+    private function deletePostsHard(array $postIds): void
+    {
+        $unique = [];
+        foreach ($postIds as $postId) {
+            $id = abs((int) $postId);
+            if ($id > 0) {
+                $unique[] = $id;
+            }
+        }
+        $unique = array_values(array_unique($unique));
+        foreach ($unique as $postId) {
+            $this->deletePostHard($postId);
+        }
+    }
+
+    private function deletePostHard(int $postId): void
+    {
+        $postId = abs($postId);
+        if ($postId <= 0) {
+            return;
+        }
+
+        $this->db()->table($this->tr())
+            ->where('object_id', $postId)
+            ->delete();
+
+        $this->db()->table($this->pm())
+            ->where('post_id', $postId)
+            ->delete();
+
+        $this->db()->table($this->posts())
+            ->where('ID', $postId)
+            ->delete();
+    }
+
+    private function resolveArtistProfileIdForUser(int $userId): int
+    {
+        $userId = abs($userId);
+        if ($userId <= 0) {
+            return 0;
+        }
+
+        $profileId = $this->latestUserMetaInt($userId, 'gigtune_artist_profile_id');
+        if ($profileId > 0) {
+            return $profileId;
+        }
+
+        return $this->findPostIdByTypeAndMeta('artist_profile', 'gigtune_artist_user_id', (string) $userId)
+            ?: $this->findPostIdByTypeAndMeta('artist_profile', 'gigtune_user_id', (string) $userId);
+    }
+
+    private function isPostType(int $postId, string $postType): bool
+    {
+        $postId = abs($postId);
+        $postType = trim($postType);
+        if ($postId <= 0 || $postType === '') {
+            return false;
+        }
+
+        return $this->db()->table($this->posts())
+            ->where('ID', $postId)
+            ->where('post_type', $postType)
+            ->exists();
+    }
+
+    private function findPostIdByTypeAndMeta(string $postType, string $metaKey, string $metaValue): int
+    {
+        $postType = trim($postType);
+        $metaKey = trim($metaKey);
+        $metaValue = trim($metaValue);
+        if ($postType === '' || $metaKey === '' || $metaValue === '') {
+            return 0;
+        }
+
+        $postId = (int) $this->db()->table($this->posts() . ' as p')
+            ->where('p.post_type', $postType)
+            ->whereExists(function ($q) use ($metaKey, $metaValue): void {
+                $q->selectRaw('1')
+                    ->from($this->pm() . ' as pm')
+                    ->whereColumn('pm.post_id', 'p.ID')
+                    ->where('pm.meta_key', $metaKey)
+                    ->where('pm.meta_value', $metaValue);
+            })
+            ->orderByDesc('p.ID')
+            ->value('p.ID');
+
+        return $postId > 0 ? $postId : 0;
     }
 
     /** @param array<string,array{message:string,url:string}> $requirements */

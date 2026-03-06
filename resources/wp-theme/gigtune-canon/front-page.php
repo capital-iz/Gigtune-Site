@@ -9,7 +9,7 @@
   $user = wp_get_current_user();
   $roles = is_user_logged_in() ? (array) $user->roles : [];
   $is_artist = in_array('gigtune_artist', $roles, true);
-  $is_client = in_array('gigtune_client', $roles, true) || in_array('administrator', $roles, true);
+  $is_client = in_array('gigtune_client', $roles, true);
   $hero_bg_file = get_template_directory() . '/assets/img/home-hero-logged-out.png';
   $hero_bg_ver = file_exists($hero_bg_file) ? (string) @filemtime($hero_bg_file) : (string) time();
   $hero_bg_url = get_template_directory_uri() . '/assets/img/home-hero-logged-out.png?v=' . rawurlencode($hero_bg_ver);

@@ -14,6 +14,13 @@
             if ($normalized === '') {
                 return '-';
             }
+            $normalized = match ($normalized) {
+                'paid escrowed' => 'paid - temporary holding',
+                'escrow funded' => 'temporary holding funded',
+                default => $normalized,
+            };
+            $normalized = preg_replace('/\bescrowed\b/i', 'temporary holding', $normalized) ?? $normalized;
+            $normalized = preg_replace('/\bescrow\b/i', 'temporary holding', $normalized) ?? $normalized;
             $normalized = ucfirst($normalized);
             $normalized = preg_replace('/\bkyc\b/i', 'KYC', $normalized) ?? $normalized;
             $normalized = preg_replace('/\bpsa\b/i', 'PSA', $normalized) ?? $normalized;
@@ -403,7 +410,17 @@
                             @foreach (($tabData['items'] ?? []) as $row)
                                 @php
                                     $status = strtoupper((string) ($row['meta']['gigtune_payment_status'] ?? ''));
-                                    $method = strtoupper((string) ($row['meta']['gigtune_payment_method'] ?? ''));
+                                    $methodRaw = trim((string) ($row['meta']['gigtune_payment_method'] ?? ''));
+                                    $methodNormalized = strtolower(preg_replace('/\s+/', ' ', str_replace(['_', '-'], ' ', $methodRaw)) ?? $methodRaw);
+                                    if ($methodNormalized === '') {
+                                        $method = 'N/A';
+                                    } elseif (str_contains($methodNormalized, 'yoco') || str_contains($methodNormalized, 'card')) {
+                                        $method = 'Card Payment (YOCO)';
+                                    } elseif (str_contains($methodNormalized, 'manual')) {
+                                        $method = 'Manual';
+                                    } else {
+                                        $method = ucfirst($methodNormalized);
+                                    }
                                     $reference = (string) ($row['meta']['gigtune_payment_reference_human'] ?? '');
                                     $reportedRaw = (int) ($row['meta']['gigtune_payment_reported_at'] ?? 0);
                                     $reported = $reportedRaw > 0 ? date('Y-m-d H:i:s', $reportedRaw) : 'N/A';
@@ -412,7 +429,7 @@
                                     <div class="flex flex-wrap items-center justify-between gap-3">
                                         <div class="text-sm text-slate-200">
                                             <div class="font-semibold text-white">Booking #{{ $row['id'] }}</div>
-                                            <div class="mt-1 text-xs text-slate-300">Method: {{ $method !== '' ? $method : 'N/A' }} | Status: {{ $sentenceCase($status) }}</div>
+                                            <div class="mt-1 text-xs text-slate-300">Method: {{ $method }} | Status: {{ $sentenceCase($status) }}</div>
                                             <div class="mt-1 text-xs text-slate-300">Reference: <span class="font-mono">{{ $reference !== '' ? $reference : '-' }}</span> | Reported: {{ $reported }}</div>
                                         </div>
                                         <div class="flex flex-wrap gap-3 text-sm">
@@ -496,10 +513,13 @@
                     @else
                         <div class="mt-4 space-y-3">
                             @foreach (($tabData['items'] ?? []) as $row)
+                                @php
+                                    $bookingStatus = $sentenceCase($row['meta']['gigtune_booking_status'] ?? '-');
+                                @endphp
                                 <div class="rounded-xl border border-white/10 bg-black/20 p-4">
                                     <div class="text-sm text-slate-200">
-                                        <div class="font-semibold text-white">Booking #{{ $row['id'] }}</div>
-                                        <div class="mt-1 text-xs text-slate-300">Status: {{ $sentenceCase($row['meta']['gigtune_booking_status'] ?? '-') }} | Payment: {{ $sentenceCase($row['meta']['gigtune_payment_status'] ?? '-') }} | Payout: {{ $sentenceCase($row['meta']['gigtune_payout_status'] ?? '-') }}</div>
+                                        <div class="font-semibold text-white">Booking #{{ $row['id'] }} - {{ $bookingStatus }}</div>
+                                        <div class="mt-1 text-xs text-slate-300">Payment: {{ $sentenceCase($row['meta']['gigtune_payment_status'] ?? '-') }} | Payout: {{ $sentenceCase($row['meta']['gigtune_payout_status'] ?? '-') }}</div>
                                         <div class="mt-1 text-xs text-slate-300">Client: {{ $row['meta']['gigtune_booking_client_user_id'] ?? '-' }} | Artist profile: {{ $row['meta']['gigtune_booking_artist_profile_id'] ?? '-' }} | Event: {{ $row['meta']['gigtune_booking_event_date'] ?? '-' }}</div>
                                     </div>
                                     <form method="post" action="/admin-dashboard/bookings/request-refund" class="mt-3 flex gap-2">

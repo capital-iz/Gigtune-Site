@@ -3168,6 +3168,13 @@ class AdminPortalController extends Controller
         if ($normalized === '') {
             return '-';
         }
+        $normalized = match ($normalized) {
+            'paid escrowed' => 'paid - temporary holding',
+            'escrow funded' => 'temporary holding funded',
+            default => $normalized,
+        };
+        $normalized = preg_replace('/\bescrowed\b/i', 'temporary holding', $normalized) ?? $normalized;
+        $normalized = preg_replace('/\bescrow\b/i', 'temporary holding', $normalized) ?? $normalized;
         $normalized = ucfirst($normalized);
         $normalized = preg_replace('/\bkyc\b/i', 'KYC', $normalized) ?? $normalized;
         $normalized = preg_replace('/\bpsa\b/i', 'PSA', $normalized) ?? $normalized;

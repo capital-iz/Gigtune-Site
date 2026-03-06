@@ -946,11 +946,14 @@ class GigTuneShortcodeService
         $clientUserId = (int) ($meta['gigtune_client_user_id'] ?? 0);
         $photo = $this->attachmentUrl((int) ($meta['gigtune_client_photo_id'] ?? 0));
         $banner = $this->attachmentUrl((int) ($meta['gigtune_client_banner_id'] ?? 0));
-        $company = trim((string) ($meta['gigtune_client_company'] ?? $meta['gigtune_client_organisation'] ?? ''));
+        $company = trim((string) ($meta['gigtune_client_company'] ?? ''));
+        $organisation = trim((string) ($meta['gigtune_client_organisation'] ?? ''));
         $baseArea = trim((string) ($meta['gigtune_client_base_area'] ?? ''));
+        $profileName = trim((string) ($post->post_title ?? ''));
 
         $ratingsAvg = 0.0;
         $ratingsCount = 0;
+        $completedBookings = 0;
         if ($clientUserId > 0) {
             $ratingRows = $this->db()->table($this->posts() . ' as p')
                 ->where('p.post_type', 'gt_client_rating')
@@ -981,44 +984,82 @@ class GigTuneShortcodeService
                     $ratingsCount = $count;
                 }
             }
+
+            $completedBookings = (int) $this->db()->table($this->posts() . ' as p')
+                ->where('p.post_type', 'gigtune_booking')
+                ->where('p.post_status', 'publish')
+                ->whereExists(function ($q) use ($clientUserId): void {
+                    $q->selectRaw('1')
+                        ->from($this->pm() . ' as pm')
+                        ->whereColumn('pm.post_id', 'p.ID')
+                        ->where('pm.meta_key', 'gigtune_booking_client_user_id')
+                        ->where('pm.meta_value', (string) $clientUserId);
+                })
+                ->whereExists(function ($q): void {
+                    $q->selectRaw('1')
+                        ->from($this->pm() . ' as pm')
+                        ->whereColumn('pm.post_id', 'p.ID')
+                        ->where('pm.meta_key', 'gigtune_booking_status')
+                        ->whereRaw('UPPER(pm.meta_value) = ?', ['COMPLETED_CONFIRMED']);
+                })
+                ->count('p.ID');
         }
+
+        $primarySecondary = $company !== '' ? $company : $organisation;
+        if (mb_strtolower($primarySecondary) === mb_strtolower($profileName)) {
+            $primarySecondary = '';
+        }
+        $aboutContent = trim((string) ($post->post_content ?? ''));
+        $ratingDisplay = number_format($ratingsAvg, 1);
+        $ratingCountDisplay = (string) $ratingsCount;
+        $bannerStyle = $banner !== ''
+            ? ' style="background-image:url(' . e($banner) . ');background-size:cover;background-position:center;"'
+            : '';
 
         $html = '<div class="space-y-6">';
         $html .= '<div class="overflow-hidden rounded-2xl border border-white/10 bg-white/5">';
-        if ($banner !== '') {
-            $html .= '<div class="h-48 w-full border-b border-white/10 bg-slate-900/70"><img src="' . e($banner) . '" alt="' . e((string) $post->post_title) . ' banner" class="h-full w-full object-cover"></div>';
-        } else {
-            $html .= '<div class="h-48 w-full border-b border-white/10 bg-gradient-to-r from-slate-900 to-slate-800"></div>';
-        }
-        $html .= '<div class="flex flex-col gap-4 px-6 pb-6 -mt-14 sm:flex-row sm:items-end sm:justify-between">';
-        $html .= '<div class="flex items-end gap-4">';
-        $html .= '<div class="h-28 w-28 shrink-0 overflow-hidden rounded-full border-4 border-slate-900 bg-slate-900">';
+        $html .= '<div class="h-56 md:h-64 bg-slate-700 relative"' . $bannerStyle . '>';
+        $html .= '<div class="w-full h-full bg-gradient-to-t from-slate-900 to-transparent absolute bottom-0 z-10"></div>';
+        $html .= '<div class="absolute inset-0 flex items-center justify-center z-20">';
+        $html .= '<div class="h-28 w-28 md:h-32 md:w-32 overflow-hidden rounded-full border border-slate-600 shadow-lg bg-slate-900">';
         if ($photo !== '') {
-            $html .= '<img src="' . e($photo) . '" alt="' . e((string) $post->post_title) . '" class="h-full w-full object-cover">';
+            $html .= '<img src="' . e($photo) . '" alt="' . e($profileName) . '" class="h-full w-full object-cover">';
         } else {
             $html .= '<div class="flex h-full w-full items-center justify-center text-xs text-slate-400">No photo</div>';
         }
+        $html .= '</div></div>';
+        $html .= '<div class="absolute top-4 right-4 z-20">';
+        $html .= '<span class="bg-slate-900/80 backdrop-blur text-white text-xs font-bold px-2 py-1 rounded flex items-center gap-1">';
+        $html .= '<span class="w-3 h-3 text-yellow-400">';
+        $html .= '<svg class="w-3 h-3 text-yellow-400 fill-yellow-400" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M12 2.5l2.95 6 6.62.96-4.79 4.67 1.13 6.6L12 17.9l-5.91 3.11 1.13-6.6L2.43 9.46l6.62-.96L12 2.5Z"></path></svg>';
+        $html .= '</span>';
+        $html .= e($ratingDisplay) . ' <span class="text-slate-300">(' . e($ratingCountDisplay) . ')</span>';
+        $html .= '</span>';
         $html .= '</div>';
-        $html .= '<div class="pt-10">';
-        $html .= '<h2 class="text-2xl font-bold text-white">' . e((string) $post->post_title) . '</h2>';
-        if ($company !== '') {
-            $html .= '<p class="mt-1 text-sm text-slate-300">' . e($company) . '</p>';
+        $html .= '</div>';
+        $html .= '<div class="px-6 pb-6 pt-5">';
+        $html .= '<h2 class="text-2xl font-bold text-white">' . e($profileName) . '</h2>';
+        if ($primarySecondary !== '') {
+            $html .= '<p class="mt-1 text-sm text-slate-300">' . e($primarySecondary) . '</p>';
         }
         if ($baseArea !== '') {
-            $html .= '<p class="text-xs text-slate-400">' . e($baseArea) . '</p>';
+            $html .= '<p class="mt-1 text-xs text-slate-400">' . e($baseArea) . '</p>';
         }
         $html .= '</div></div>';
-        $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-3 text-sm">';
-        if ($ratingsCount > 0) {
-            $html .= '<div class="text-slate-300">Client rating</div>';
-            $html .= '<div class="mt-1 font-semibold text-white">&#9733; ' . e(number_format($ratingsAvg, 1)) . ' <span class="font-normal text-slate-400">(' . e((string) $ratingsCount) . ')</span></div>';
-        } else {
-            $html .= '<div class="text-slate-300">No ratings yet.</div>';
-        }
-        $html .= '</div></div></div>';
         $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
         $html .= '<h3 class="text-lg font-semibold text-white">About</h3>';
-        $html .= '<div class="mt-3 text-sm text-slate-200">' . nl2br(e(trim((string) $post->post_content))) . '</div>';
+        if ($aboutContent !== '') {
+            $html .= '<div class="mt-3 text-sm text-slate-200">' . nl2br(e($aboutContent)) . '</div>';
+        } else {
+            $html .= '<div class="mt-3 text-sm text-slate-300">No profile description yet.</div>';
+        }
+        $html .= '<div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">';
+        $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-3"><div class="text-slate-400 text-xs">Completed bookings</div><div class="mt-1 font-semibold text-white">' . e((string) $completedBookings) . '</div></div>';
+        $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-3"><div class="text-slate-400 text-xs">Client rating</div><div class="mt-1 font-semibold text-white">' . e($ratingDisplay) . ' <span class="font-normal text-slate-400">(' . e($ratingCountDisplay) . ')</span></div></div>';
+        if ($organisation !== '' && mb_strtolower($organisation) !== mb_strtolower($profileName)) {
+            $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-3"><div class="text-slate-400 text-xs">Organisation</div><div class="mt-1 font-semibold text-white">' . e($organisation) . '</div></div>';
+        }
+        $html .= '</div>';
         $html .= '</div>';
         return $html . '</div>';
     }
@@ -2854,7 +2895,7 @@ class GigTuneShortcodeService
             $travelFeeAmount = max(0.0, (float) ($bookingMeta['gigtune_booking_travel_amount'] ?? 0));
             $respondedAt = trim((string) ($bookingMeta['gigtune_booking_responded_at'] ?? ''));
             $rejectReason = trim((string) ($bookingMeta['gigtune_booking_reject_reason'] ?? ''));
-            $paymentMethod = strtoupper(trim((string) ($bookingMeta['gigtune_payment_method'] ?? '')));
+            $paymentMethod = $this->normalizePaymentMethodLabel((string) ($bookingMeta['gigtune_payment_method'] ?? ''));
             $paymentReportedAtTs = (int) ($bookingMeta['gigtune_payment_reported_at'] ?? 0);
             $paymentWindowExpiresAtTs = (int) ($bookingMeta['gigtune_payment_window_expires_at'] ?? 0);
             $paymentWindowExpired = $paymentWindowExpiresAtTs > 0 && $paymentWindowExpiresAtTs < time();
@@ -2909,7 +2950,7 @@ class GigTuneShortcodeService
 
             $html .= '<div class="rounded-xl border border-white/10 bg-white/5 p-4">';
             $html .= '<div class="flex flex-wrap items-center justify-between gap-3">';
-            $html .= '<h3 class="text-base font-semibold text-white">Booking #' . $bookingId . '</h3>';
+            $html .= '<h3 class="text-base font-semibold text-white">Booking #' . $bookingId . ' - ' . e($status !== '' ? $status : '-') . '</h3>';
             $html .= '<a href="/messages/" class="text-xs text-slate-300 hover:text-white underline">Back to all messages</a>';
             $html .= '</div>';
             $html .= '<div class="mt-2 grid gap-2 text-sm text-slate-300 md:grid-cols-2">';
@@ -4197,10 +4238,10 @@ class GigTuneShortcodeService
 
             $out .= '<article class="rounded-xl border border-white/10 bg-black/20 p-4">';
             $out .= '<div class="flex flex-wrap items-center justify-between gap-3">';
-            $out .= '<div class="text-sm font-semibold text-white">Booking #' . $id . '</div>';
+            $out .= '<div class="text-sm font-semibold text-white">Booking #' . $id . ' - ' . e($status !== '' ? $status : '-') . '</div>';
             $out .= '<a href="/messages/?booking_id=' . $id . '" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15">View Booking</a>';
             $out .= '</div>';
-            $out .= '<div class="mt-2 text-xs text-slate-300">Status: ' . e($status !== '' ? $status : '-') . ' | Payment: ' . e($payment !== '' ? $payment : '-') . ' | Payout: ' . e($payout !== '' ? $payout : '-') . ' | Refund: ' . e($refund !== '' ? $refund : '-') . '</div>';
+            $out .= '<div class="mt-2 text-xs text-slate-300">Payment: ' . e($payment !== '' ? $payment : '-') . ' | Payout: ' . e($payout !== '' ? $payout : '-') . ' | Refund: ' . e($refund !== '' ? $refund : '-') . '</div>';
             $out .= '<div class="mt-1 text-xs text-slate-300">Event: ' . e($eventDate !== '' ? $eventDate : '-') . '</div>';
             $out .= '<div class="mt-3 flex flex-wrap gap-2">';
             if ($partyId > 0) {
@@ -4231,7 +4272,7 @@ class GigTuneShortcodeService
                 $eventDate = trim((string) ($meta['gigtune_booking_event_date'] ?? ''));
                 $out .= '<article class="rounded-xl border border-white/10 bg-black/20 p-4">';
                 $out .= '<div class="flex flex-wrap items-center justify-between gap-3">';
-                $out .= '<div class="text-sm font-semibold text-white">Booking #' . $id . ' <span class="text-slate-400">Archived</span></div>';
+                $out .= '<div class="text-sm font-semibold text-white">Booking #' . $id . ' - ' . e($status !== '' ? $status : '-') . ' <span class="text-slate-400">Archived</span></div>';
                 $out .= '<div class="flex flex-wrap gap-2">';
                 $out .= '<a href="/messages/?booking_id=' . $id . '" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15">View Booking</a>';
                 $out .= '<form method="post" class="inline-flex">'
@@ -5539,10 +5580,42 @@ HTML;
         if ($value === '') {
             return '';
         }
+        $value = match ($value) {
+            'paid escrowed' => 'paid - temporary holding',
+            'escrow funded' => 'temporary holding funded',
+            default => $value,
+        };
+        $value = preg_replace('/\bescrowed\b/i', 'temporary holding', $value) ?? $value;
+        $value = preg_replace('/\bescrow\b/i', 'temporary holding', $value) ?? $value;
         $value = ucfirst($value);
         $value = preg_replace('/\bkyc\b/i', 'KYC', $value) ?? $value;
         $value = preg_replace('/\bpsa\b/i', 'PSA', $value) ?? $value;
         return $value;
+    }
+
+    private function normalizePaymentMethodLabel(string $value): string
+    {
+        $value = trim($value);
+        if ($value === '') {
+            return '';
+        }
+
+        $normalized = strtolower($value);
+        $normalized = preg_replace('/[_-]+/', ' ', $normalized) ?? $normalized;
+        $normalized = preg_replace('/\s+/', ' ', $normalized) ?? $normalized;
+        $normalized = trim($normalized);
+
+        if ($normalized === '') {
+            return '';
+        }
+        if (str_contains($normalized, 'yoco') || str_contains($normalized, 'card')) {
+            return 'Card Payment (YOCO)';
+        }
+        if (str_contains($normalized, 'manual')) {
+            return 'Manual';
+        }
+
+        return $this->toSentenceCase($normalized);
     }
 
     /** @return array<string,array<int,string>> */

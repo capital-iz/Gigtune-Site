@@ -37,6 +37,17 @@ class SitePageController extends Controller
         $slug = $normalizedPath === '' ? '' : basename($normalizedPath);
         $currentUser = $this->resolveCurrentUser($request);
 
+        if (
+            $normalizedPath === ''
+            && strtoupper((string) $request->method()) === 'GET'
+            && is_array($currentUser)
+            && (bool) ($currentUser['is_admin'] ?? false)
+        ) {
+            $request->attributes->set('gigtune_user', $currentUser);
+            $adminDashboard = app(AdminPortalController::class)->dashboard($request);
+            return response($adminDashboard->render(), 200)->header('Content-Type', 'text/html; charset=UTF-8');
+        }
+
         if ($slug === 'logout' || $slug === 'sign-out') {
             $this->logoutSession($request);
             $redirectTo = $this->safeRedirectPath((string) $request->query('redirect_to', '/'), '/');

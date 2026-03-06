@@ -288,20 +288,16 @@
       <?php
         $nav_items = $is_artist
           ? [
-              ['id' => 'gt-dashboard-overview', 'label' => 'Overview'],
+              ['id' => 'gt-artist-dashboard', 'label' => 'Dashboard'],
               ['id' => 'gt-artist-actions', 'label' => 'Quick actions'],
               ['id' => 'gt-artist-snapshot', 'label' => 'Snapshot'],
-              ['id' => 'gt-artist-dashboard', 'label' => 'Dashboard'],
               ['id' => 'gt-artist-opps', 'label' => 'Opportunities'],
             ]
           : [
-              ['id' => 'gt-dashboard-overview', 'label' => 'Overview'],
+              ['id' => 'gt-client-dashboard', 'label' => 'Dashboard'],
               ['id' => 'gt-client-actions', 'label' => 'Quick actions'],
               ['id' => 'gt-client-snapshot', 'label' => 'Snapshot'],
-              ['id' => 'gt-client-post-applicants', 'label' => 'Post applicants'],
-              ['id' => 'gt-client-dashboard', 'label' => 'Bookings'],
-              ['id' => 'gt-client-featured', 'label' => 'Featured artists'],
-              ['id' => 'gt-client-profile', 'label' => 'Profile'],
+              ['id' => 'gt-client-post-applicants', 'label' => 'Opportunities'],
             ];
       ?>
 
@@ -329,40 +325,23 @@
         </aside>
 
         <div class="gt-dashboard-content">
-          <div class="mb-8 gt-dashboard-section" id="gt-dashboard-overview">
-            <h1 class="text-3xl md:text-4xl font-bold text-white">Welcome back, <?php echo esc_html($user->display_name); ?></h1>
-            <p class="text-slate-400 mt-2"><?php echo $is_artist ? 'Your artist control center for bookings and opportunities.' : 'Your client hub for booking and tracking artists.'; ?></p>
-            <?php if ($is_artist): ?>
-              <div class="mt-6 grid gap-4 gt-dashboard-overview-cards">
-                <a href="<?php echo esc_url(home_url('/open-posts/')); ?>" class="gt-dashboard-overview-card">
-                  <div class="text-xs text-slate-400">Browse Client Posts</div>
-                  <div class="text-lg text-white font-semibold mt-2">Open gigs</div>
-                </a>
-                <a href="<?php echo esc_url(home_url('/wp-login.php?action=logout&redirect_to=' . rawurlencode(home_url('/')))); ?>" class="gt-dashboard-overview-card gt-dashboard-overview-card-danger">
-                  <div class="text-xs text-slate-400">Account</div>
-                  <div class="text-lg text-white font-semibold mt-2">Log out</div>
-                </a>
-              </div>
-            <?php else: ?>
-              <div class="mt-6 grid gap-4 gt-dashboard-overview-cards">
-                <a href="<?php echo esc_url(home_url('/posts-page/')); ?>" class="gt-dashboard-overview-card">
-                  <div class="text-xs text-slate-400">Create a Gig Post</div>
-                  <div class="text-lg text-white font-semibold mt-2">Post your needs</div>
-                </a>
-                <a href="<?php echo esc_url(home_url('/open-posts/')); ?>" class="gt-dashboard-overview-card">
-                  <div class="text-xs text-slate-400">Browse Client Posts</div>
-                  <div class="text-lg text-white font-semibold mt-2">Open gigs</div>
-                </a>
-                <a href="<?php echo esc_url(home_url('/wp-login.php?action=logout&redirect_to=' . rawurlencode(home_url('/')))); ?>" class="gt-dashboard-overview-card gt-dashboard-overview-card-danger">
-                  <div class="text-xs text-slate-400">Account</div>
-                  <div class="text-lg text-white font-semibold mt-2">Log out</div>
-                </a>
-              </div>
-            <?php endif; ?>
-          </div>
-
       <?php if ($is_artist): ?>
+        <div class="grid gap-6 lg:grid-cols-2 gt-dashboard-grid">
+          <div class="rounded-2xl border border-white/10 bg-white/5 p-6 gt-dashboard-section" id="gt-artist-dashboard">
+            <h2 class="text-lg font-semibold text-white mb-4">Dashboard Snapshot</h2>
+            <?php echo do_shortcode('[gigtune_artist_dashboard]'); ?>
+          </div>
+          <div class="rounded-2xl border border-white/10 bg-white/5 p-6 gt-dashboard-section" id="gt-artist-opps">
+            <h2 class="text-lg font-semibold text-white mb-4">Opportunities</h2>
+            <?php echo do_shortcode('[gigtune_artist_feed]'); ?>
+          </div>
+        </div>
+
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-10 gt-dashboard-section" id="gt-artist-actions">
+          <a href="<?php echo esc_url(home_url('/my-account-page/')); ?>" class="rounded-2xl border border-white/10 bg-white/5 p-5 hover:bg-white/10 transition">
+            <div class="text-xs text-slate-400">My Account</div>
+            <div class="text-lg text-white font-semibold mt-2">Account options</div>
+          </a>
           <a href="<?php echo esc_url(home_url('/artist-availability/')); ?>" class="rounded-2xl border border-white/10 bg-white/5 p-5 hover:bg-white/10 transition">
             <div class="text-xs text-slate-400">Update Availability</div>
             <div class="text-lg text-white font-semibold mt-2">Manage schedule</div>
@@ -384,19 +363,23 @@
         <div class="mb-10 gt-dashboard-section" id="gt-artist-snapshot">
           <?php echo do_shortcode('[gigtune_artist_home_snapshot]'); ?>
         </div>
-
+      <?php else: ?>
         <div class="grid gap-6 lg:grid-cols-2 gt-dashboard-grid">
-          <div class="rounded-2xl border border-white/10 bg-white/5 p-6 gt-dashboard-section" id="gt-artist-dashboard">
-            <h2 class="text-lg font-semibold text-white mb-4">Dashboard Snapshot</h2>
-            <?php echo do_shortcode('[gigtune_artist_dashboard]'); ?>
+          <div class="rounded-2xl border border-white/10 bg-white/5 p-6 gt-dashboard-section" id="gt-client-dashboard">
+            <h2 class="text-lg font-semibold text-white mb-4">Booking Snapshot</h2>
+            <?php echo do_shortcode('[gigtune_client_dashboard]'); ?>
           </div>
-          <div class="rounded-2xl border border-white/10 bg-white/5 p-6 gt-dashboard-section" id="gt-artist-opps">
-            <h2 class="text-lg font-semibold text-white mb-4">Opportunities</h2>
-            <?php echo do_shortcode('[gigtune_artist_feed]'); ?>
+          <div class="rounded-2xl border border-white/10 bg-white/5 p-6 gt-dashboard-section" id="gt-client-featured">
+            <h2 class="text-lg font-semibold text-white mb-4">Featured Artists</h2>
+            <?php echo do_shortcode('[gigtune_featured_artists_simple limit="6"]'); ?>
           </div>
         </div>
-      <?php else: ?>
+
         <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4 mb-10 gt-dashboard-section" id="gt-client-actions">
+          <a href="<?php echo esc_url(home_url('/my-account-page/')); ?>" class="rounded-2xl border border-white/10 bg-white/5 p-5 hover:bg-white/10 transition">
+            <div class="text-xs text-slate-400">My Account</div>
+            <div class="text-lg text-white font-semibold mt-2">Account options</div>
+          </a>
           <a href="<?php echo esc_url(home_url('/browse-artists/')); ?>" class="rounded-2xl border border-white/10 bg-white/5 p-5 hover:bg-white/10 transition">
             <div class="text-xs text-slate-400">Discover Artists</div>
             <div class="text-lg text-white font-semibold mt-2">Browse talent</div>
@@ -420,19 +403,8 @@
         </div>
 
         <div class="mb-10 gt-dashboard-section" id="gt-client-post-applicants">
-          <h2 class="text-lg font-semibold text-white mb-4">Open Post Applicants</h2>
+          <h2 class="text-lg font-semibold text-white mb-4">Opportunities</h2>
           <?php echo do_shortcode('[gigtune_client_psa_applicants_panel limit="6" show_empty="1"]'); ?>
-        </div>
-
-        <div class="grid gap-6 lg:grid-cols-2 gt-dashboard-grid">
-          <div class="rounded-2xl border border-white/10 bg-white/5 p-6 gt-dashboard-section" id="gt-client-dashboard">
-            <h2 class="text-lg font-semibold text-white mb-4">Booking Snapshot</h2>
-            <?php echo do_shortcode('[gigtune_client_dashboard]'); ?>
-          </div>
-          <div class="rounded-2xl border border-white/10 bg-white/5 p-6 gt-dashboard-section" id="gt-client-featured">
-            <h2 class="text-lg font-semibold text-white mb-4">Featured Artists</h2>
-            <?php echo do_shortcode('[gigtune_featured_artists_simple limit="6"]'); ?>
-          </div>
         </div>
 
         <div class="mt-6 gt-dashboard-section gt-mobile-only" id="gt-client-profile">

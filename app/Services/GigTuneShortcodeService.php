@@ -4592,12 +4592,31 @@ class GigTuneShortcodeService
         }
 
         $bookings = (int) $bookingsQuery->count('p.ID');
+        $closedStatuses = [
+            'completed confirmed',
+            'completed_confirmed',
+            'completed',
+            'cancelled by client',
+            'cancelled_by_client',
+            'cancelled by artist',
+            'cancelled_by_artist',
+            'rejected',
+            'refunded',
+            'refunded_closed',
+            'dispute resolved',
+            'closed',
+        ];
+        $openBookingsQuery = clone $bookingsQuery;
+        $openBookingsQuery->whereNotExists(function ($q) use ($closedStatuses): void {
+            $q->selectRaw('1')
+                ->from($this->pm() . ' as pm')
+                ->whereColumn('pm.post_id', 'p.ID')
+                ->where('pm.meta_key', 'gigtune_booking_status')
+                ->whereIn(DB::raw('LOWER(pm.meta_value)'), $closedStatuses);
+        });
+        $openBookings = (int) $openBookingsQuery->count('p.ID');
         $notifications = (int) ($this->notifications->list($uid, $uid, (bool) ($u['is_admin'] ?? false), ['per_page' => 1, 'page' => 1, 'archived' => '0'])['total'] ?? 0);
-        $kycStatus = $this->toSentenceCase((string) $this->latestUserMeta($uid, 'gigtune_kyc_status'));
-        if ($kycStatus === '') {
-            $kycStatus = 'Not submitted';
-        }
-        return '<div class="grid gap-3 sm:grid-cols-3"><div class="rounded-xl border border-white/10 bg-white/5 p-4"><div class="text-xs text-slate-400">Bookings</div><div class="mt-1 text-2xl font-bold text-white">' . $bookings . '</div></div><div class="rounded-xl border border-white/10 bg-white/5 p-4"><div class="text-xs text-slate-400">Notifications</div><div class="mt-1 text-2xl font-bold text-white">' . $notifications . '</div></div><div class="rounded-xl border border-white/10 bg-white/5 p-4"><div class="text-xs text-slate-400">KYC</div><div class="mt-1 text-sm font-semibold text-white">' . e($kycStatus) . '</div></div></div>';
+        return '<div class="grid gap-3 sm:grid-cols-3"><div class="rounded-xl border border-white/10 bg-white/5 p-4"><div class="text-xs text-slate-400">Bookings</div><div class="mt-1 text-2xl font-bold text-white">' . $bookings . '</div></div><div class="rounded-xl border border-white/10 bg-white/5 p-4"><div class="text-xs text-slate-400">Open bookings</div><div class="mt-1 text-2xl font-bold text-white">' . $openBookings . '</div></div><div class="rounded-xl border border-white/10 bg-white/5 p-4"><div class="text-xs text-slate-400">Notifications</div><div class="mt-1 text-2xl font-bold text-white">' . $notifications . '</div></div></div>';
     }
 
     private function metaQueryMatch(array $meta, array $query): bool

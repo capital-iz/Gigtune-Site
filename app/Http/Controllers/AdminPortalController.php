@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Services\GigTuneMailService;
 use App\Services\GigTuneSiteMaintenanceService;
 use App\Services\GigTuneWebPushService;
+use App\Services\WordPressNotificationService;
 use App\Services\WordPressUserService;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Http\RedirectResponse;
@@ -38,6 +39,7 @@ class AdminPortalController extends Controller
 
     public function __construct(
         private readonly WordPressUserService $users,
+        private readonly WordPressNotificationService $notifications,
         private readonly GigTuneMailService $mail,
         private readonly GigTuneSiteMaintenanceService $siteMaintenance,
         private readonly GigTuneWebPushService $webPush,
@@ -544,6 +546,22 @@ class AdminPortalController extends Controller
         }
 
         return $this->redirectWithAdminFlash('bookings', 'refund_requested');
+    }
+
+    public function markAllNotificationsRead(Request $request): RedirectResponse
+    {
+        $actorId = $this->currentAdminUserId($request);
+        if ($actorId <= 0) {
+            return $this->redirectWithAdminFlash('overview', '', 'insufficient_permissions');
+        }
+
+        try {
+            $this->notifications->markAllRead($actorId, $actorId, true);
+        } catch (\Throwable) {
+            return $this->redirectWithAdminFlash('overview', '', 'notifications_mark_all_failed');
+        }
+
+        return $this->redirectWithAdminFlash('overview', 'notifications_marked_read');
     }
 
     public function archiveBooking(Request $request): RedirectResponse

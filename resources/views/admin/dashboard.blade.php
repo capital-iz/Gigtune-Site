@@ -129,6 +129,14 @@
                                 <div class="text-sm font-semibold text-white">Admin notifications</div>
                                 <a href="/notifications/" class="text-xs text-blue-300 hover:text-blue-200">Open notifications</a>
                             </div>
+                            <div class="mt-2 flex flex-wrap items-center gap-3 text-xs">
+                                <form method="post" action="/admin-dashboard/notifications/mark-all-read" class="inline-flex">
+                                    @csrf
+                                    <button type="submit" class="text-slate-200/90 hover:text-white underline">Mark all read</button>
+                                </form>
+                                <a href="/notification-settings/" class="text-slate-200/90 hover:text-white underline">Email settings</a>
+                                <a href="/notifications-archive/" class="text-slate-200/90 hover:text-white underline">View archive</a>
+                            </div>
                             @if (!empty($adminNotifications))
                                 <div class="mt-3 space-y-2">
                                     @foreach ($adminNotifications as $notification)
@@ -359,27 +367,33 @@
                             </div>
                         @endif
                     @else
-                        @if (empty($tabData['items']))
-                            <p class="mt-3 text-sm text-slate-300">No users found for this filter.</p>
-                        @else
-                            <div class="mt-4 space-y-2">
-                                @foreach (($tabData['items'] ?? []) as $item)
-                                    <div class="rounded-lg border border-white/10 bg-black/20 p-3 text-sm text-slate-200">
-                                        <div class="flex flex-wrap items-center justify-between gap-2">
-                                            <div>
-                                                <div class="font-semibold text-white">{{ $item['public_name'] }} (User #{{ $item['id'] }})</div>
-                                                <div class="text-xs text-slate-300 mt-1">Username: {{ $item['login'] }} | Email: {{ $item['email'] }}</div>
-                                                <div class="text-xs mt-1 {{ !empty($item['compliance']['all_verified']) ? 'text-emerald-200' : 'text-amber-200' }}">{{ $item['compliance_summary'] }}</div>
-                                            </div>
-                                            <div class="flex gap-3 text-sm">
-                                                <a class="text-blue-300 hover:text-blue-200" href="{{ $item['view_url'] }}">View</a>
-                                                <a class="text-blue-300 hover:text-blue-200" href="/gts-admin-users?search={{ urlencode((string) $item['login']) }}">Admin users</a>
+                        @php
+                            $usersList = is_array($tabData['items'] ?? null) ? $tabData['items'] : [];
+                        @endphp
+                        <details class="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
+                            <summary class="cursor-pointer select-none text-sm font-semibold text-white">Users list ({{ count($usersList) }})</summary>
+                            @if (empty($usersList))
+                                <p class="mt-3 text-sm text-slate-300">No users found for this filter.</p>
+                            @else
+                                <div class="mt-3 space-y-2">
+                                    @foreach ($usersList as $item)
+                                        <div class="rounded-lg border border-white/10 bg-black/20 p-3 text-sm text-slate-200">
+                                            <div class="flex flex-wrap items-center justify-between gap-2">
+                                                <div>
+                                                    <div class="font-semibold text-white">{{ $item['public_name'] }} (User #{{ $item['id'] }})</div>
+                                                    <div class="text-xs text-slate-300 mt-1">Username: {{ $item['login'] }} | Email: {{ $item['email'] }}</div>
+                                                    <div class="text-xs mt-1 {{ !empty($item['compliance']['all_verified']) ? 'text-emerald-200' : 'text-amber-200' }}">{{ $item['compliance_summary'] }}</div>
+                                                </div>
+                                                <div class="flex gap-3 text-sm">
+                                                    <a class="text-blue-300 hover:text-blue-200" href="{{ $item['view_url'] }}">View</a>
+                                                    <a class="text-blue-300 hover:text-blue-200" href="/gts-admin-users?search={{ urlencode((string) $item['login']) }}">Admin users</a>
+                                                </div>
                                             </div>
                                         </div>
-                                    </div>
-                                @endforeach
-                            </div>
-                        @endif
+                                    @endforeach
+                                </div>
+                            @endif
+                        </details>
                     @endif
                 </div>
             @endif
@@ -406,11 +420,16 @@
                         </div>
                     </div>
 
-                    @if (empty($tabData['items']))
-                        <p class="mt-4 text-sm text-slate-300">No users found for this scope.</p>
-                    @else
-                        <div class="mt-4 space-y-3">
-                            @foreach (($tabData['items'] ?? []) as $item)
+                    @php
+                        $complianceItems = is_array($tabData['items'] ?? null) ? $tabData['items'] : [];
+                    @endphp
+                    <details class="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
+                        <summary class="cursor-pointer select-none text-sm font-semibold text-white">Compliance users ({{ count($complianceItems) }})</summary>
+                        @if (empty($complianceItems))
+                            <p class="mt-3 text-sm text-slate-300">No users found for this scope.</p>
+                        @else
+                            <div class="mt-3 space-y-3">
+                                @foreach ($complianceItems as $item)
                                 @php
                                     $compliance = is_array($item['compliance'] ?? null) ? $item['compliance'] : [];
                                     $override = (string) ($item['profile_visibility_override'] ?? 'auto');
@@ -466,20 +485,26 @@
                                         </div>
                                     </form>
                                 </div>
-                            @endforeach
-                        </div>
-                    @endif
+                                @endforeach
+                            </div>
+                        @endif
+                    </details>
                 </div>
             @endif
 
             @if ($activeTab === 'payments')
                 <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
                     <h4 class="text-base font-semibold text-white">Payments Awaiting Confirmation</h4>
-                    @if (empty($tabData['items']))
-                        <p class="mt-3 text-sm text-slate-300">No bookings are awaiting payment confirmation.</p>
-                    @else
-                        <div class="mt-4 space-y-3">
-                            @foreach (($tabData['items'] ?? []) as $row)
+                    @php
+                        $paymentItems = is_array($tabData['items'] ?? null) ? $tabData['items'] : [];
+                    @endphp
+                    <details class="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
+                        <summary class="cursor-pointer select-none text-sm font-semibold text-white">Awaiting payment confirmation ({{ count($paymentItems) }})</summary>
+                        @if (empty($paymentItems))
+                            <p class="mt-3 text-sm text-slate-300">No bookings are awaiting payment confirmation.</p>
+                        @else
+                            <div class="mt-3 space-y-3">
+                                @foreach ($paymentItems as $row)
                                 @php
                                     $status = strtoupper((string) ($row['meta']['gigtune_payment_status'] ?? ''));
                                     $methodRaw = trim((string) ($row['meta']['gigtune_payment_method'] ?? ''));
@@ -526,20 +551,27 @@
                                         </form>
                                     </div>
                                 </div>
-                            @endforeach
-                        </div>
-                    @endif
+                                @endforeach
+                            </div>
+                        @endif
+                    </details>
                 </div>
             @endif
 
             @if ($activeTab === 'payouts')
                 <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
                     <h4 class="text-base font-semibold text-white">Payouts Pending Manual Processing</h4>
-                    @if (empty($tabData['pending_items']))
-                        <p class="mt-3 text-sm text-slate-300">No manual payouts pending.</p>
-                    @else
-                        <div class="mt-4 space-y-3">
-                            @foreach (($tabData['pending_items'] ?? []) as $row)
+                    @php
+                        $pendingPayoutItems = is_array($tabData['pending_items'] ?? null) ? $tabData['pending_items'] : [];
+                        $needsReviewItems = is_array($tabData['needs_review_items'] ?? null) ? $tabData['needs_review_items'] : [];
+                    @endphp
+                    <details class="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
+                        <summary class="cursor-pointer select-none text-sm font-semibold text-white">Pending manual payouts ({{ count($pendingPayoutItems) }})</summary>
+                        @if (empty($pendingPayoutItems))
+                            <p class="mt-3 text-sm text-slate-300">No manual payouts pending.</p>
+                        @else
+                            <div class="mt-3 space-y-3">
+                                @foreach ($pendingPayoutItems as $row)
                                 @php
                                     $bookingStatus = $sentenceCase($row['meta']['gigtune_booking_status'] ?? '-');
                                 @endphp
@@ -559,25 +591,28 @@
                                         </div>
                                     </form>
                                 </div>
-                            @endforeach
-                        </div>
-                    @endif
+                                @endforeach
+                            </div>
+                        @endif
+                    </details>
 
-                    <h5 class="mt-6 text-sm font-semibold text-white">Needs Review</h5>
-                    @if (empty($tabData['needs_review_items']))
-                        <p class="mt-2 text-sm text-slate-300">No unusual payout states detected.</p>
-                    @else
-                        <div class="mt-2 space-y-2">
-                            @foreach (($tabData['needs_review_items'] ?? []) as $row)
-                                <div class="rounded-lg border border-white/10 bg-black/20 p-3 text-sm text-slate-200">
-                                    Booking #{{ $row['id'] }} | Payout: {{ $sentenceCase($row['meta']['gigtune_payout_status'] ?? '-') }}
-                                    @if (!empty($row['meta']['gigtune_payout_failure_reason']))
-                                        | Reason: {{ $row['meta']['gigtune_payout_failure_reason'] }}
-                                    @endif
-                                </div>
-                            @endforeach
-                        </div>
-                    @endif
+                    <details class="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
+                        <summary class="cursor-pointer select-none text-sm font-semibold text-white">Needs review ({{ count($needsReviewItems) }})</summary>
+                        @if (empty($needsReviewItems))
+                            <p class="mt-3 text-sm text-slate-300">No unusual payout states detected.</p>
+                        @else
+                            <div class="mt-3 space-y-2">
+                                @foreach ($needsReviewItems as $row)
+                                    <div class="rounded-lg border border-white/10 bg-black/20 p-3 text-sm text-slate-200">
+                                        Booking #{{ $row['id'] }} | Payout: {{ $sentenceCase($row['meta']['gigtune_payout_status'] ?? '-') }}
+                                        @if (!empty($row['meta']['gigtune_payout_failure_reason']))
+                                            | Reason: {{ $row['meta']['gigtune_payout_failure_reason'] }}
+                                        @endif
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
+                    </details>
                 </div>
             @endif
 
@@ -660,11 +695,16 @@
             @if ($activeTab === 'disputes')
                 <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
                     <h4 class="text-base font-semibold text-white">Disputes</h4>
-                    @if (empty($tabData['items']))
-                        <p class="mt-3 text-sm text-slate-300">No disputes found.</p>
-                    @else
-                        <div class="mt-4 space-y-3">
-                            @foreach (($tabData['items'] ?? []) as $row)
+                    @php
+                        $disputeItems = is_array($tabData['items'] ?? null) ? $tabData['items'] : [];
+                    @endphp
+                    <details class="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
+                        <summary class="cursor-pointer select-none text-sm font-semibold text-white">Disputes ({{ count($disputeItems) }})</summary>
+                        @if (empty($disputeItems))
+                            <p class="mt-3 text-sm text-slate-300">No disputes found.</p>
+                        @else
+                            <div class="mt-3 space-y-3">
+                                @foreach ($disputeItems as $row)
                                 <div class="rounded-xl border border-white/10 bg-black/20 p-4">
                                     <div class="text-sm text-slate-200">
                                         <div class="font-semibold text-white">Dispute #{{ $row['id'] }}</div>
@@ -685,20 +725,26 @@
                                         </div>
                                     </form>
                                 </div>
-                            @endforeach
-                        </div>
-                    @endif
+                                @endforeach
+                            </div>
+                        @endif
+                    </details>
                 </div>
             @endif
 
             @if ($activeTab === 'refunds')
                 <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
                     <h4 class="text-base font-semibold text-white">Refunds Queue</h4>
-                    @if (empty($tabData['items']))
-                        <p class="mt-3 text-sm text-slate-300">No refunds are currently pending review.</p>
-                    @else
-                        <div class="mt-4 space-y-3">
-                            @foreach (($tabData['items'] ?? []) as $row)
+                    @php
+                        $refundItems = is_array($tabData['items'] ?? null) ? $tabData['items'] : [];
+                    @endphp
+                    <details class="mt-4 rounded-xl border border-white/10 bg-black/20 p-4">
+                        <summary class="cursor-pointer select-none text-sm font-semibold text-white">Refund requests ({{ count($refundItems) }})</summary>
+                        @if (empty($refundItems))
+                            <p class="mt-3 text-sm text-slate-300">No refunds are currently pending review.</p>
+                        @else
+                            <div class="mt-3 space-y-3">
+                                @foreach ($refundItems as $row)
                                 @php
                                     $checkoutId = (string) ($row['meta']['gigtune_refund_checkout_id'] ?? '');
                                     if ($checkoutId === '') {
@@ -728,9 +774,10 @@
                                         </div>
                                     </form>
                                 </div>
-                            @endforeach
-                        </div>
-                    @endif
+                                @endforeach
+                            </div>
+                        @endif
+                    </details>
                 </div>
             @endif
 
@@ -792,12 +839,16 @@
                     <p class="mt-2 text-sm text-slate-300">Review identity documents, approve/reject/lock submissions, and reopen prior records any time. Approved and rejected submissions remain fully accessible to admins.</p>
                     <div class="mt-4 space-y-4">
                         @foreach ($kycGroupLabels as $groupKey => $groupLabel)
-                            @php $groupItems = is_array($kycGroups[$groupKey] ?? null) ? $kycGroups[$groupKey] : []; @endphp
-                            <div class="rounded-xl border border-white/10 bg-black/20 p-4">
-                                <div class="flex items-center justify-between gap-3">
-                                    <h5 class="text-sm font-semibold text-white">{{ $groupLabel }}</h5>
-                                    <span class="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-xs text-slate-200">{{ count($groupItems) }}</span>
-                                </div>
+                            @php
+                                $groupItems = is_array($kycGroups[$groupKey] ?? null) ? $kycGroups[$groupKey] : [];
+                                $groupCount = count($groupItems);
+                                $groupOpen = $groupKey === 'pending';
+                            @endphp
+                            <details class="rounded-xl border border-white/10 bg-black/20 p-4" @if ($groupOpen) open @endif>
+                                <summary class="flex cursor-pointer select-none items-center justify-between gap-3 text-sm font-semibold text-white">
+                                    <span>{{ $groupLabel }}</span>
+                                    <span class="inline-flex items-center rounded-full border border-white/10 bg-white/10 px-2.5 py-1 text-xs text-slate-200">{{ $groupCount }}</span>
+                                </summary>
                                 @if (empty($groupItems))
                                     <p class="mt-3 text-sm text-slate-300">{{ $kycGroupEmptyLabels[$groupKey] ?? 'No submissions.' }}</p>
                                 @else
@@ -922,7 +973,7 @@
                                         @endforeach
                                     </div>
                                 @endif
-                            </div>
+                            </details>
                         @endforeach
                     </div>
                 </div>

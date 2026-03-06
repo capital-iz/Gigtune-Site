@@ -571,6 +571,11 @@ body.home .grid.gap-4.sm\:grid-cols-2.lg\:grid-cols-3 .text-white.font-semibold.
   body.gt-mobile-app main :is(h1, h2, h3, h4, h5, h6, p, li, label, legend, small, blockquote, figcaption):not(.text-center) {
     text-align: left !important;
   }
+
+  body.gt-mobile-app main .gt-dashboard-mobile-center-title,
+  body.gt-mobile-app main .gt-dashboard-mobile-center-subtitle {
+    text-align: center !important;
+  }
 }
 
 /* Home hero image paint tuning for mobile LCP. */

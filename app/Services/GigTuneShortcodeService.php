@@ -4270,8 +4270,8 @@ class GigTuneShortcodeService
         $html .= '</div>';
         $html .= '</div>';
         $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
-        $html .= '<h3 class="text-lg font-semibold text-white">' . e($title) . '</h3>';
-        $html .= '<p class="mt-2 text-sm text-slate-300">Manage bookings, messages, notifications, and account compliance.</p>';
+        $html .= '<h3 class="gt-dashboard-mobile-center-title text-lg font-semibold text-white">' . e($title) . '</h3>';
+        $html .= '<p class="gt-dashboard-mobile-center-subtitle mt-2 text-sm text-slate-300">Manage bookings, messages, notifications, and account compliance.</p>';
         $profileCta = $publicProfileUrl !== ''
             ? '<a href="' . e($publicProfileUrl) . '" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white bg-white/10 hover:bg-white/15">View Public Profile</a>'
             : '';

@@ -66,6 +66,7 @@ class GigTuneShortcodeService
         'woocommerce_cart' => 'wooCart',
         'woocommerce_checkout' => 'wooCheckout',
     ];
+    private int $demoPreviewCounter = 0;
 
     public function has(string $tag): bool
     {
@@ -1398,6 +1399,7 @@ class GigTuneShortcodeService
             $html .= '</div></div>';
         }
         $html .= '</div>';
+        $html .= $this->renderDemoVideoEnhancementsScript();
 
         return $html;
     }
@@ -2079,6 +2081,7 @@ class GigTuneShortcodeService
 
         $html .= '<div class="flex flex-wrap gap-2"><button type="submit" class="rounded-md bg-blue-600 px-4 py-2 text-sm font-semibold text-white">Save profile</button><a class="rounded-md border border-slate-600 px-4 py-2 text-sm font-semibold text-slate-200" href="/artist-profile/?artist_id=' . (int) $profileId . '">Preview profile</a></div>';
         $html .= '</form>';
+        $html .= $this->renderDemoVideoEnhancementsScript();
         $html .= $this->renderProfileMediaEnhancementsScript();
         return $html;
     }
@@ -5885,15 +5888,74 @@ class GigTuneShortcodeService
         $ext = strtolower((string) pathinfo(parse_url($url, PHP_URL_PATH) ?? '', PATHINFO_EXTENSION));
         $isDirectVideo = $type === 'upload' || in_array($ext, ['mp4', 'webm', 'mov', 'm4v'], true);
         if ($isDirectVideo) {
-            return '<video controls preload="metadata" class="w-full rounded-lg border border-white/10 bg-black"><source src="' . e($url) . '"></video>';
+            $playerId = 'gt-demo-player-' . (++$this->demoPreviewCounter);
+            return '<div id="' . e($playerId) . '" class="gt-demo-player relative overflow-hidden rounded-xl border border-white/10 bg-slate-950" data-gt-demo-player="1">'
+                . '<video data-gt-demo-video="1" data-gt-demo-src="' . e($url) . '" preload="none" playsinline class="aspect-video w-full bg-black"></video>'
+                . '<button type="button" data-gt-demo-overlay-play="1" class="gt-demo-overlay absolute inset-0 z-10 flex items-center justify-center gap-2 text-white">'
+                . '<span class="gt-demo-overlay-icon inline-flex h-12 w-12 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-blue-500 shadow-lg">'
+                . '<svg viewBox="0 0 24 24" class="h-5 w-5 fill-white" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>'
+                . '</span>'
+                . '<span class="text-sm font-semibold tracking-wide">Play Demo</span>'
+                . '</button>'
+                . '<div class="gt-demo-controls absolute inset-x-0 bottom-0 z-20 flex items-center gap-2 px-3 py-2">'
+                . '<button type="button" data-gt-demo-toggle="1" class="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white hover:bg-white/20">Play</button>'
+                . '<input type="range" data-gt-demo-seek="1" min="0" max="100" value="0" class="gt-demo-range h-1 w-full cursor-pointer rounded-full">'
+                . '<span data-gt-demo-time="1" class="whitespace-nowrap text-[11px] font-medium text-slate-200">0:00 / 0:00</span>'
+                . '<button type="button" data-gt-demo-mute="1" class="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white hover:bg-white/20">Mute</button>'
+                . '<button type="button" data-gt-demo-fullscreen="1" class="rounded-md bg-white/10 px-2 py-1 text-xs font-semibold text-white hover:bg-white/20">Full</button>'
+                . '</div>'
+                . '</div>';
         }
 
         $embedUrl = $this->normalizeDemoEmbedUrl($url);
         if ($embedUrl !== '') {
-            return '<div class="aspect-video w-full overflow-hidden rounded-lg border border-white/10 bg-black"><iframe src="' . e($embedUrl) . '" class="h-full w-full border-0" allowfullscreen loading="lazy" referrerpolicy="no-referrer-when-downgrade"></iframe></div>';
+            $poster = $this->demoVideoPoster($url, $embedUrl);
+            $providerLabel = $this->demoVideoProviderLabel($url);
+            $posterHtml = $poster !== ''
+                ? '<img src="' . e($poster) . '" alt="' . e($providerLabel . ' preview') . '" loading="lazy" class="absolute inset-0 h-full w-full object-cover">'
+                : '<div class="absolute inset-0 bg-gradient-to-br from-slate-900 via-slate-950 to-blue-950"></div>';
+            return '<div class="gt-demo-embed relative aspect-video w-full overflow-hidden rounded-xl border border-white/10 bg-black">'
+                . '<button type="button" data-gt-demo-embed-activate="1" data-gt-demo-embed-url="' . e($embedUrl) . '" class="absolute inset-0 block w-full text-left">'
+                . $posterHtml
+                . '<span class="absolute inset-0 bg-gradient-to-t from-black/85 via-black/25 to-black/40"></span>'
+                . '<span class="absolute inset-x-4 bottom-4 flex items-center justify-between">'
+                . '<span class="inline-flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-100">'
+                . '<span class="inline-flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-amber-400 to-blue-500 shadow-lg">'
+                . '<svg viewBox="0 0 24 24" class="h-4 w-4 fill-white" aria-hidden="true"><path d="M8 5v14l11-7z"></path></svg>'
+                . '</span>'
+                . e($providerLabel)
+                . '</span>'
+                . '<span class="rounded-md bg-white/15 px-2 py-1 text-[11px] font-semibold text-white">Tap to load</span>'
+                . '</span>'
+                . '</button>'
+                . '</div>';
         }
 
         return '<div class="rounded-lg border border-white/10 bg-slate-900/60 px-3 py-2 text-xs text-slate-300">External demo link preview unavailable for this provider.</div>';
+    }
+
+    private function demoVideoPoster(string $sourceUrl, string $embedUrl = ''): string
+    {
+        $candidate = trim($sourceUrl . ' ' . $embedUrl);
+        if (preg_match('#(?:youtube\.com/(?:watch\?v=|embed/)|youtu\.be/)([A-Za-z0-9_-]{6,})#i', $candidate, $m) === 1) {
+            return 'https://i.ytimg.com/vi/' . $m[1] . '/hqdefault.jpg';
+        }
+        return '';
+    }
+
+    private function demoVideoProviderLabel(string $url): string
+    {
+        $url = strtolower(trim($url));
+        if (str_contains($url, 'youtube.com') || str_contains($url, 'youtu.be')) {
+            return 'YouTube';
+        }
+        if (str_contains($url, 'vimeo.com')) {
+            return 'Vimeo';
+        }
+        if (str_contains($url, 'tiktok.com')) {
+            return 'TikTok';
+        }
+        return 'External Video';
     }
 
     private function normalizeDemoEmbedUrl(string $url): string
@@ -5917,6 +5979,165 @@ class GigTuneShortcodeService
         }
 
         return '';
+    }
+
+    private function renderDemoVideoEnhancementsScript(): string
+    {
+        return <<<'HTML'
+<style>
+.gt-demo-overlay { background: radial-gradient(circle at center, rgba(15,23,42,0.35) 0%, rgba(2,6,23,0.85) 72%); transition: opacity .2s ease; }
+.gt-demo-player.is-playing .gt-demo-overlay { opacity: 0; pointer-events: none; }
+.gt-demo-controls { background: linear-gradient(to top, rgba(2,6,23,.94), rgba(2,6,23,.38)); backdrop-filter: blur(6px); }
+.gt-demo-range { accent-color: #fbbf24; }
+@media (hover:hover) {
+  .gt-demo-player:hover .gt-demo-overlay-icon { transform: scale(1.04); }
+}
+</style>
+<script>
+(function () {
+  if (window.__gtDemoVideoEnhancerBound) {
+    if (window.__gtDemoVideoEnhancerBind) { window.__gtDemoVideoEnhancerBind(); }
+    return;
+  }
+  window.__gtDemoVideoEnhancerBound = true;
+
+  function formatTime(seconds) {
+    var value = Number(seconds);
+    if (!Number.isFinite(value) || value < 0) { value = 0; }
+    var mins = Math.floor(value / 60);
+    var secs = Math.floor(value % 60);
+    return mins + ':' + String(secs).padStart(2, '0');
+  }
+
+  function ensureSource(video) {
+    if (!video) { return false; }
+    if (video.getAttribute('src')) { return true; }
+    var src = (video.dataset.gtDemoSrc || '').trim();
+    if (!src) { return false; }
+    video.setAttribute('src', src);
+    try { video.load(); } catch (e) {}
+    return true;
+  }
+
+  function bindPlayer(root) {
+    if (!root || root.dataset.gtDemoBound === '1') { return; }
+    root.dataset.gtDemoBound = '1';
+
+    var video = root.querySelector('[data-gt-demo-video="1"]');
+    if (!video) { return; }
+    var overlayPlay = root.querySelector('[data-gt-demo-overlay-play="1"]');
+    var toggle = root.querySelector('[data-gt-demo-toggle="1"]');
+    var seek = root.querySelector('[data-gt-demo-seek="1"]');
+    var time = root.querySelector('[data-gt-demo-time="1"]');
+    var mute = root.querySelector('[data-gt-demo-mute="1"]');
+    var fullscreen = root.querySelector('[data-gt-demo-fullscreen="1"]');
+
+    function refreshState() {
+      var isPlaying = !video.paused && !video.ended;
+      root.classList.toggle('is-playing', isPlaying);
+      if (toggle) { toggle.textContent = isPlaying ? 'Pause' : 'Play'; }
+      if (mute) { mute.textContent = video.muted ? 'Unmute' : 'Mute'; }
+    }
+
+    function refreshProgress() {
+      var duration = Number(video.duration);
+      var current = Number(video.currentTime || 0);
+      if (seek) {
+        var percent = duration > 0 ? (current / duration) * 100 : 0;
+        seek.value = String(Math.max(0, Math.min(100, percent)));
+      }
+      if (time) {
+        time.textContent = formatTime(current) + ' / ' + formatTime(duration);
+      }
+    }
+
+    function togglePlayback() {
+      if (!ensureSource(video)) { return; }
+      if (video.paused || video.ended) {
+        video.play().catch(function () {});
+      } else {
+        video.pause();
+      }
+    }
+
+    if (overlayPlay) { overlayPlay.addEventListener('click', togglePlayback); }
+    if (toggle) { toggle.addEventListener('click', togglePlayback); }
+
+    if (seek) {
+      seek.addEventListener('input', function () {
+        if (!ensureSource(video)) { return; }
+        var duration = Number(video.duration);
+        if (!Number.isFinite(duration) || duration <= 0) { return; }
+        var next = (Number(seek.value || 0) / 100) * duration;
+        if (Number.isFinite(next)) { video.currentTime = next; }
+      });
+    }
+
+    if (mute) {
+      mute.addEventListener('click', function () {
+        video.muted = !video.muted;
+        refreshState();
+      });
+    }
+
+    if (fullscreen) {
+      fullscreen.addEventListener('click', function () {
+        var target = root;
+        if (!target || typeof target.requestFullscreen !== 'function') { return; }
+        target.requestFullscreen().catch(function () {});
+      });
+    }
+
+    video.addEventListener('play', refreshState);
+    video.addEventListener('pause', refreshState);
+    video.addEventListener('ended', refreshState);
+    video.addEventListener('loadedmetadata', refreshProgress);
+    video.addEventListener('timeupdate', refreshProgress);
+
+    refreshState();
+    refreshProgress();
+  }
+
+  function withAutoplay(url) {
+    if (!url) { return url; }
+    if (/[\?&]autoplay=/.test(url)) { return url; }
+    return url + (url.indexOf('?') === -1 ? '?' : '&') + 'autoplay=1';
+  }
+
+  function bindEmbed(button) {
+    if (!button || button.dataset.gtDemoBound === '1') { return; }
+    button.dataset.gtDemoBound = '1';
+    button.addEventListener('click', function () {
+      var url = (button.dataset.gtDemoEmbedUrl || '').trim();
+      if (!url) { return; }
+      var host = button.closest('.gt-demo-embed');
+      if (!host) { return; }
+      var iframe = document.createElement('iframe');
+      iframe.src = withAutoplay(url);
+      iframe.className = 'h-full w-full border-0';
+      iframe.setAttribute('allowfullscreen', 'allowfullscreen');
+      iframe.setAttribute('loading', 'lazy');
+      iframe.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
+      iframe.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
+      host.innerHTML = '';
+      host.appendChild(iframe);
+    });
+  }
+
+  function bindAll() {
+    document.querySelectorAll('[data-gt-demo-player="1"]').forEach(bindPlayer);
+    document.querySelectorAll('[data-gt-demo-embed-activate="1"]').forEach(bindEmbed);
+  }
+
+  window.__gtDemoVideoEnhancerBind = bindAll;
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bindAll);
+  } else {
+    bindAll();
+  }
+})();
+</script>
+HTML;
     }
 
     private function renderProfileMediaEnhancementsScript(): string

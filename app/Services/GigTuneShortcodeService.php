@@ -1894,6 +1894,7 @@ class GigTuneShortcodeService
             'event_address_country' => 'South Africa',
             'budget' => '',
             'travel_amount' => '',
+            'accommodation_amount' => '',
             'requires_accommodation' => '0',
             'client_offers_accommodation' => '0',
             'accommodation_note' => '',
@@ -1922,6 +1923,7 @@ class GigTuneShortcodeService
             }
             $values['budget'] = trim((string) $request->input('budget', $request->input('gigtune_booking_budget', '')));
             $values['travel_amount'] = trim((string) $request->input('travel_amount', $request->input('gigtune_booking_travel_amount', '')));
+            $values['accommodation_amount'] = trim((string) $request->input('accommodation_amount', $request->input('gigtune_payment_accommodation_fee', '')));
             $values['requires_accommodation'] = (string) ($request->input('requires_accommodation', $request->input('gigtune_booking_requires_accommodation', '')) === '1' ? '1' : '0');
             $values['client_offers_accommodation'] = (string) ($request->input('client_offers_accommodation', $request->input('gigtune_booking_client_offers_accommodation', '')) === '1' ? '1' : '0');
             $values['accommodation_note'] = trim((string) $request->input('accommodation_note', $request->input('gigtune_booking_accommodation_note', '')));
@@ -1964,6 +1966,12 @@ class GigTuneShortcodeService
                             if ($values['event_address_postal_code'] !== '' && preg_match('/^\d{4}$/', $values['event_address_postal_code']) !== 1) {
                                 $fieldErrors['address_postal_code'] = 'Postal code must be a 4-digit number.';
                             }
+                            if ($values['travel_amount'] !== '' && !is_numeric($values['travel_amount'])) {
+                                $fieldErrors['travel_amount'] = 'Travel amount must be numeric.';
+                            }
+                            if ($values['accommodation_amount'] !== '' && !is_numeric($values['accommodation_amount'])) {
+                                $fieldErrors['accommodation_amount'] = 'Accommodation fee must be numeric.';
+                            }
 
                             if ($fieldErrors !== []) {
                                 $error = '1';
@@ -1974,6 +1982,8 @@ class GigTuneShortcodeService
                                     'event_date' => 'gigtune-booking-event-date',
                                     'event_location' => 'event_address_street',
                                     'address_postal_code' => 'event_address_postal_code',
+                                    'travel_amount' => 'travel_amount',
+                                    'accommodation_amount' => 'accommodation_amount',
                                     default => '',
                                 };
                             } else {
@@ -2050,6 +2060,8 @@ class GigTuneShortcodeService
                                 $requestedTs = $now->timestamp;
                                 $expiryTs = $now->copy()->addHours(72)->timestamp;
                                 $budgetInt = max(0, (int) $values['budget']);
+                                $travelAmountFloat = max(0.0, (float) ($values['travel_amount'] !== '' ? $values['travel_amount'] : 0));
+                                $accommodationAmountFloat = max(0.0, (float) ($values['accommodation_amount'] !== '' ? $values['accommodation_amount'] : 0));
 
                                 $this->upsertPostMeta($bookingId, 'gigtune_booking_id', (string) $bookingId);
                                 $this->upsertPostMeta($bookingId, 'gigtune_booking_artist_profile_id', (string) $artistIdInput);
@@ -2069,7 +2081,12 @@ class GigTuneShortcodeService
                                 $this->upsertPostMeta($bookingId, 'gigtune_booking_requires_accommodation', $values['requires_accommodation']);
                                 $this->upsertPostMeta($bookingId, 'gigtune_booking_client_offers_accommodation', $values['client_offers_accommodation']);
                                 $this->upsertPostMeta($bookingId, 'gigtune_booking_accommodation_note', $values['accommodation_note']);
-                                $this->upsertPostMeta($bookingId, 'gigtune_booking_travel_amount', $values['travel_amount']);
+                                $this->upsertPostMeta($bookingId, 'gigtune_booking_travel_amount', (string) $travelAmountFloat);
+                                if ($values['client_offers_accommodation'] === '1') {
+                                    $this->upsertPostMeta($bookingId, 'gigtune_payment_accommodation_fee', '0');
+                                } elseif ($values['accommodation_amount'] !== '') {
+                                    $this->upsertPostMeta($bookingId, 'gigtune_payment_accommodation_fee', (string) $accommodationAmountFloat);
+                                }
                                 $this->upsertPostMeta($bookingId, 'gigtune_booking_created_at', (string) $requestedTs);
                                 $this->upsertPostMeta($bookingId, 'gigtune_booking_quote_accepted', '0');
                                 $this->upsertPostMeta($bookingId, 'gigtune_payment_status', 'UNPAID');
@@ -2152,6 +2169,7 @@ class GigTuneShortcodeService
                                     'event_address_country' => 'South Africa',
                                     'budget' => '',
                                     'travel_amount' => '',
+                                    'accommodation_amount' => '',
                                     'requires_accommodation' => '0',
                                     'client_offers_accommodation' => '0',
                                     'accommodation_note' => '',
@@ -2248,6 +2266,7 @@ class GigTuneShortcodeService
         $html .= '</div></div>';
         $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Budget (ZAR)</label><input id="budget" type="number" min="0" step="1" name="budget" value="' . e($values['budget']) . '" placeholder="e.g. 2500" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
         $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Travel amount</label><input id="travel_amount" type="number" min="0" step="0.01" name="travel_amount" value="' . e($values['travel_amount']) . '" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
+        $html .= '<div><label class="block text-sm font-semibold text-slate-200 mb-2">Accommodation fee (ZAR)</label><input id="accommodation_amount" type="number" min="0" step="0.01" name="accommodation_amount" value="' . e($values['accommodation_amount']) . '" placeholder="Optional - leave blank to use artist default rule" class="w-full rounded-xl bg-slate-950/50 border border-white/10 px-4 py-3 text-white"></div>';
         $html .= '<div class="grid gap-3 md:grid-cols-2">';
         $html .= '<label class="inline-flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" name="requires_accommodation" value="1"' . ($values['requires_accommodation'] === '1' ? ' checked' : '') . '> Requires accommodation</label>';
         $html .= '<label class="inline-flex items-center gap-2 text-sm text-slate-200"><input type="checkbox" name="client_offers_accommodation" value="1"' . ($values['client_offers_accommodation'] === '1' ? ' checked' : '') . '> Client offers accommodation</label>';
@@ -2313,6 +2332,7 @@ class GigTuneShortcodeService
                 'gigtune_booking_locked',
                 'gigtune_booking_budget',
                 'gigtune_booking_quote_amount',
+                'gigtune_booking_travel_amount',
                 'gigtune_booking_requires_accommodation',
                 'gigtune_booking_client_offers_accommodation',
                 'gigtune_payment_accommodation_fee',
@@ -2806,6 +2826,7 @@ class GigTuneShortcodeService
                     'gigtune_booking_location_text',
                     'gigtune_booking_budget',
                     'gigtune_booking_quote_amount',
+                    'gigtune_booking_travel_amount',
                     'gigtune_booking_requires_accommodation',
                     'gigtune_booking_client_offers_accommodation',
                     'gigtune_payment_accommodation_fee',
@@ -2830,6 +2851,7 @@ class GigTuneShortcodeService
             $eventDate = trim((string) ($bookingMeta['gigtune_booking_event_date'] ?? ''));
             $location = trim((string) ($bookingMeta['gigtune_booking_location_text'] ?? ''));
             $quoteAmount = (int) ($bookingMeta['gigtune_booking_quote_amount'] ?? $bookingMeta['gigtune_booking_budget'] ?? 0);
+            $travelFeeAmount = max(0.0, (float) ($bookingMeta['gigtune_booking_travel_amount'] ?? 0));
             $respondedAt = trim((string) ($bookingMeta['gigtune_booking_responded_at'] ?? ''));
             $rejectReason = trim((string) ($bookingMeta['gigtune_booking_reject_reason'] ?? ''));
             $paymentMethod = strtoupper(trim((string) ($bookingMeta['gigtune_payment_method'] ?? '')));
@@ -2843,6 +2865,18 @@ class GigTuneShortcodeService
             $accommodationFeeAmount = $this->bookingAccommodationFeeAmount($bookingMeta);
             $checkoutTotalCents = $this->bookingYocoAmountCents($bookingId);
             $checkoutTotal = $checkoutTotalCents > 0 ? ($checkoutTotalCents / 100) : 0.0;
+            $baseSubtotal = max(0.0, round(((float) $quoteAmount) + $travelFeeAmount + $accommodationFeeAmount, 2));
+            $serviceFeeAmount = $baseSubtotal > 0 ? round($baseSubtotal * 0.15, 2) : 0.0;
+            $totalPayableAmount = $baseSubtotal > 0 ? round($baseSubtotal + $serviceFeeAmount, 2) : 0.0;
+            if ($checkoutTotal > 0) {
+                $totalPayableAmount = $checkoutTotal;
+                if ($baseSubtotal > 0) {
+                    $derivedService = round($checkoutTotal - $baseSubtotal, 2);
+                    if ($derivedService >= 0) {
+                        $serviceFeeAmount = $derivedService;
+                    }
+                }
+            }
             $disputeWindowDeadlineTs = $this->bookingDisputeDeadlineTimestamp($eventDate);
             $disputeWindowClosed = $disputeWindowDeadlineTs > 0 && time() > $disputeWindowDeadlineTs;
 
@@ -2886,10 +2920,11 @@ class GigTuneShortcodeService
             $html .= '<p>Dispute: <span class="text-slate-100">' . e($dispute) . '</span></p>';
             $html .= '<p>Event date: <span class="text-slate-100">' . e($eventDate !== '' ? $eventDate : '-') . '</span></p>';
             $html .= '<p class="md:col-span-2">Location: <span class="text-slate-100">' . e($location !== '' ? $location : '-') . '</span></p>';
-            if ($quoteAmount > 0) {
-                $html .= '<p>Quote: <span class="text-slate-100">ZAR ' . e(number_format($quoteAmount)) . '</span></p>';
-            }
+            $html .= '<p>Quote: <span class="text-slate-100">ZAR ' . e(number_format((float) $quoteAmount, 2)) . '</span></p>';
+            $html .= '<p>Travel fee: <span class="text-slate-100">ZAR ' . e(number_format($travelFeeAmount, 2)) . '</span></p>';
             $html .= '<p>Accommodation fee: <span class="text-slate-100">ZAR ' . e(number_format($accommodationFeeAmount, 2)) . '</span></p>';
+            $html .= '<p>Service fee (15%): <span class="text-slate-100">ZAR ' . e(number_format($serviceFeeAmount, 2)) . '</span></p>';
+            $html .= '<p>Total payable: <span class="text-slate-100">ZAR ' . e(number_format($totalPayableAmount, 2)) . '</span></p>';
             if ($paymentMethod !== '') {
                 $html .= '<p>Method: <span class="text-slate-100">' . e($paymentMethod) . '</span></p>';
             }
@@ -2922,9 +2957,11 @@ class GigTuneShortcodeService
             if (($isClientOwner || $isAdmin) && $currentStatusRaw === 'ACCEPTED_PENDING_PAYMENT') {
                 $html .= '<div class="w-full rounded-xl border border-white/10 bg-black/20 p-4 space-y-3">';
                 $html .= '<p class="text-sm text-slate-200 font-semibold">Pay by card (YOCO)</p>';
-                if ($checkoutTotal > 0) {
-                    $html .= '<p class="text-xs text-slate-300">Total: <span class="text-slate-100">ZAR ' . e(number_format($checkoutTotal, 2)) . '</span> <span class="text-slate-400">(includes 15% service fee)</span></p>';
-                }
+                $html .= '<p class="text-xs text-slate-300">Quote: <span class="text-slate-100">ZAR ' . e(number_format((float) $quoteAmount, 2)) . '</span></p>';
+                $html .= '<p class="text-xs text-slate-300">Travel fee: <span class="text-slate-100">ZAR ' . e(number_format($travelFeeAmount, 2)) . '</span></p>';
+                $html .= '<p class="text-xs text-slate-300">Accommodation fee: <span class="text-slate-100">ZAR ' . e(number_format($accommodationFeeAmount, 2)) . '</span></p>';
+                $html .= '<p class="text-xs text-slate-300">Service fee (15%): <span class="text-slate-100">ZAR ' . e(number_format($serviceFeeAmount, 2)) . '</span></p>';
+                $html .= '<p class="text-xs text-slate-300">Total: <span class="text-slate-100">ZAR ' . e(number_format($totalPayableAmount, 2)) . '</span></p>';
                 $html .= '<p class="text-xs text-slate-300">Reference: <span class="text-slate-100 font-mono">' . e($paymentReferenceHuman) . '</span></p>';
                 if ($paymentWindowExpiresAtTs > 0) {
                     $html .= '<p class="text-xs text-slate-300">Payment deadline: <span class="text-slate-100">' . e(date('M j, Y H:i', $paymentWindowExpiresAtTs)) . '</span></p>';

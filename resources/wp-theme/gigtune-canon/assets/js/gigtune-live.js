@@ -39,6 +39,13 @@
     }
   }
 
+  function allowNativeContextMenu(target) {
+    if (!target || typeof target.closest !== 'function') {
+      return false;
+    }
+    return !!target.closest('input, textarea, select, [contenteditable=\"true\"], [contenteditable=\"\"]');
+  }
+
   function qs(selector) {
     return document.querySelector(selector);
   }
@@ -587,6 +594,50 @@
     }, 300000);
   }
 
+  function setupAppImmersion() {
+    if (!inStandaloneMode()) {
+      return;
+    }
+
+    document.documentElement.classList.add('gt-app-immersive');
+    if (document.body) {
+      document.body.classList.add('gt-app-immersive');
+      document.body.classList.add('gt-mobile-app');
+    }
+
+    document.addEventListener('contextmenu', function (event) {
+      if (allowNativeContextMenu(event.target)) {
+        return;
+      }
+      event.preventDefault();
+    }, { passive: false });
+
+    document.addEventListener('dragstart', function (event) {
+      if (allowNativeContextMenu(event.target)) {
+        return;
+      }
+      event.preventDefault();
+    }, { passive: false });
+  }
+
+  function setupMobileLayoutClass() {
+    var mediaQuery = window.matchMedia ? window.matchMedia('(max-width: 1023.98px)') : null;
+
+    function applyClass() {
+      if (!document.body) {
+        return;
+      }
+      var isMobile = mediaQuery ? !!mediaQuery.matches : (window.innerWidth <= 1023);
+      document.body.classList.toggle('gt-mobile-app', isMobile || inStandaloneMode());
+    }
+
+    applyClass();
+    window.addEventListener('resize', applyClass);
+    if (mediaQuery && typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', applyClass);
+    }
+  }
+
   function notifyViaBrowser(title, body, url, tag) {
     if (!('Notification' in window)) {
       return;
@@ -862,6 +913,8 @@
 
   function init() {
     setupServiceWorkerAutoUpdate();
+    setupMobileLayoutClass();
+    setupAppImmersion();
     setupPermissionWatcher();
     setupInstallPrompt();
     setupAlertsOptIn();

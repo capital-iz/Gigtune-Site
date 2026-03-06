@@ -19,11 +19,15 @@
 
   <!-- HERO (matches Gemini v1.2 layout/spacing) -->
   <section class="group relative isolate pt-24 pb-20 md:pb-32 overflow-hidden px-4">
-    <div
-      class="pointer-events-none absolute inset-0 z-0 bg-cover bg-center bg-no-repeat opacity-70"
-      style="background-image: url('<?php echo esc_url($hero_bg_url); ?>'); filter: blur(8px); transform: scale(1.08);"
+    <img
+      src="<?php echo esc_url($hero_bg_url); ?>"
+      alt=""
+      loading="eager"
+      fetchpriority="high"
+      decoding="async"
+      class="pointer-events-none absolute inset-0 z-0 h-full w-full object-cover object-center opacity-70 gt-home-hero-bg"
       aria-hidden="true"
-    ></div>
+    />
     <div class="pointer-events-none absolute top-0 left-0 z-10 w-full h-full bg-[radial-gradient(ellipse_at_top_right,_var(--tw-gradient-stops))] from-purple-900/25 via-slate-900/70 to-slate-900"></div>
 
     <div class="relative z-20 w-full px-4 sm:px-6 lg:px-10 xl:px-14 2xl:px-16 text-center">

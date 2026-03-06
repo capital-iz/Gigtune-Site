@@ -541,3 +541,67 @@ body.home .grid.gap-4.sm\:grid-cols-2.lg\:grid-cols-3 .text-white.font-semibold.
   font-size: 12px;
   color: rgba(226,232,240,0.85);
 }
+
+/* Mobile/app readability and alignment defaults. */
+@media (max-width: 1023px) {
+  body.gt-mobile-app #gt-mobile-nav :is(a, button) {
+    text-align: left !important;
+  }
+
+  body.gt-mobile-app #gt-mobile-nav .inline-flex,
+  body.gt-mobile-app .gt-dashboard-nav-link,
+  body.gt-mobile-app .gt-dashboard-section .gt-btn,
+  body.gt-mobile-app .gt-dashboard-section .inline-flex:not(.justify-center) {
+    justify-content: flex-start;
+  }
+
+  body.gt-mobile-app main :is(.max-w-7xl, .max-w-6xl, .max-w-5xl, .max-w-4xl, .max-w-3xl) {
+    padding-left: 1rem;
+    padding-right: 1rem;
+  }
+
+  body.gt-mobile-app main :is(.rounded-xl, .rounded-2xl, .gt-dashboard-section, .gt-dashboard-shell, .gt-dashboard-card):not(.text-center) {
+    text-align: left;
+  }
+
+  body.gt-mobile-app main :is(.flex, .inline-flex):not(.justify-center):not(.items-center.justify-center) {
+    justify-content: flex-start;
+  }
+
+  body.gt-mobile-app main :is(h1, h2, h3, h4, h5, h6, p, li, label, legend, small, blockquote, figcaption):not(.text-center) {
+    text-align: left !important;
+  }
+}
+
+/* Home hero image paint tuning for mobile LCP. */
+.gt-home-hero-bg {
+  filter: blur(8px);
+  transform: scale(1.08);
+}
+
+@media (max-width: 1023px) {
+  .gt-home-hero-bg {
+    filter: blur(3px);
+    transform: scale(1.03);
+  }
+}
+
+/* Installed app immersion: reduce browser-like long-press/context menus. */
+html.gt-app-immersive,
+body.gt-app-immersive {
+  -webkit-touch-callout: none;
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+html.gt-app-immersive a,
+html.gt-app-immersive button,
+html.gt-app-immersive [role="button"] {
+  -webkit-tap-highlight-color: transparent;
+}
+
+html.gt-app-immersive :is(input, textarea, select, [contenteditable="true"], [contenteditable=""]) {
+  -webkit-touch-callout: default;
+  -webkit-user-select: text;
+  user-select: text;
+}

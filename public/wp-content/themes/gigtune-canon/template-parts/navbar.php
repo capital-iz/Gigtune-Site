@@ -37,8 +37,6 @@ $logout_url = wp_logout_url(home_url('/'));
 
 // Header icon.
 $logo_url = trailingslashit(get_stylesheet_directory_uri()) . 'assets/img/gigtune-icon-bg.png';
-$mobile_bell_idle_url = trailingslashit(get_stylesheet_directory_uri()) . 'assets/img/notification-bell-idle.png';
-$mobile_bell_unread_url = trailingslashit(get_stylesheet_directory_uri()) . 'assets/img/notification-bell-unread.png';
 ?>
 <nav class="sticky top-0 z-50 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -103,13 +101,6 @@ $mobile_bell_unread_url = trailingslashit(get_stylesheet_directory_uri()) . 'ass
 
       <!-- Mobile Menu Button -->
       <div class="md:hidden flex items-center gap-1">
-        <?php if ($is_logged_in): ?>
-          <a href="<?php echo esc_url(home_url('/notifications/')); ?>" class="relative p-2 text-slate-300 hover:text-white transition-colors" aria-label="Notifications">
-            <img src="<?php echo esc_url($mobile_bell_idle_url); ?>" alt="" class="h-6 w-6 object-contain gt-live-mobile-bell-idle" />
-            <img src="<?php echo esc_url($mobile_bell_unread_url); ?>" alt="" class="hidden h-6 w-6 object-contain gt-live-mobile-bell-unread" />
-            <span class="gt-live-notification-count absolute -top-0.5 -right-0.5 inline-flex min-w-[18px] items-center justify-center rounded-full bg-rose-500 px-1.5 text-[10px] font-bold text-white hidden" data-hide-zero="1"></span>
-          </a>
-        <?php endif; ?>
         <button type="button" class="text-slate-300 p-2 focus:outline-none" aria-controls="gt-mobile-nav" aria-expanded="false" id="gtMobileNavBtn">
           <span class="sr-only">Toggle menu</span>
           <svg class="h-6 w-6" viewBox="0 0 24 24" fill="none" aria-hidden="true">

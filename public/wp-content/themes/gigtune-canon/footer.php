@@ -120,7 +120,7 @@ window.GigTuneLiveConfig = Object.assign({}, window.GigTuneLiveConfig || {}, {
   pollIntervalMs: 20000
 });
 </script>
-<script src="/wp-content/themes/gigtune-canon/assets/js/gigtune-live.js?v=20260306"></script>
+<script src="/wp-content/themes/gigtune-canon/assets/js/gigtune-live.js?v=20260306a"></script>
 
 <?php wp_footer(); ?>
 </body>

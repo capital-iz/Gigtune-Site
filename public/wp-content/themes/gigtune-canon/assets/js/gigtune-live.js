@@ -20,12 +20,14 @@
   var lastNotificationKey = storagePrefix + 'notifications.last_id.' + userId;
   var alertsOptInKey = storagePrefix + 'alerts.opt_in.' + userId;
   var lastPushEndpointKey = storagePrefix + 'push.endpoint.' + userId;
+  var notificationPermissionKey = storagePrefix + 'notifications.permission.' + userId;
 
   var deferredInstallPrompt = null;
   var isPolling = false;
   var firstPollComplete = false;
   var installFallbackShown = false;
   var pushSyncInFlight = false;
+  var pushDeniedCleanupInFlight = false;
   var pushConfigCache = null;
 
   function inStandaloneMode() {
@@ -85,6 +87,185 @@
     });
   }
 
+  function getNotificationPermissionState() {
+    if (!('Notification' in window)) {
+      return 'unsupported';
+    }
+    var state = String(Notification.permission || 'default').toLowerCase();
+    if (state !== 'granted' && state !== 'denied') {
+      return 'default';
+    }
+    return state;
+  }
+
+  function permissionStateLabel(state) {
+    if (state === 'granted') {
+      return 'enabled';
+    }
+    if (state === 'denied') {
+      return 'blocked';
+    }
+    if (state === 'default') {
+      return 'off';
+    }
+    return 'unsupported';
+  }
+
+  function emitPermissionUpdate(state) {
+    try {
+      window.dispatchEvent(new CustomEvent('gigtune:notifications:permission', {
+        detail: {
+          state: state,
+          label: permissionStateLabel(state),
+          notificationsEnabled: notificationsEnabled,
+          userId: userId,
+          appId: appId
+        }
+      }));
+    } catch (e) {
+      return;
+    }
+  }
+
+  function getEnableNotificationInstructions() {
+    var ua = String((window.navigator && window.navigator.userAgent) || '').toLowerCase();
+    var inStandalone = inStandaloneMode();
+    var isIos = /iphone|ipad|ipod/.test(ua);
+    var isAndroid = /android/.test(ua);
+    var isChrome = /chrome|crios/.test(ua);
+
+    if (isIos) {
+      return 'Notifications are blocked. Open iOS Settings, find the browser/app used for GigTune, then enable Notifications.';
+    }
+    if (isAndroid && inStandalone) {
+      return 'Notifications are blocked. Long-press the GigTune app icon, tap App info, then enable Notifications for this app.';
+    }
+    if (isAndroid && isChrome) {
+      return 'Notifications are blocked. In Chrome, open Site settings for this page, then set Notifications to Allow.';
+    }
+    return 'Notifications are blocked. Open this site\'s browser settings and set Notifications to Allow.';
+  }
+
+  function showEnableNotificationInstructions() {
+    window.alert(getEnableNotificationInstructions());
+  }
+
+  function updatePermissionStatusBadge(state) {
+    if (!notificationsEnabled || userId <= 0) {
+      return;
+    }
+
+    var badge = ensureFloatingAction(
+      'gtNotificationPermissionStatus',
+      '',
+      'fixed bottom-16 left-4 z-[90] max-w-[85vw] rounded-xl border px-3 py-2 text-xs font-semibold shadow-lg'
+    );
+
+    if (state === 'granted' || state === 'unsupported') {
+      badge.style.display = 'none';
+      return;
+    }
+
+    if (state === 'denied') {
+      badge.className = 'fixed bottom-16 left-4 z-[90] max-w-[85vw] rounded-xl border border-rose-400/60 bg-rose-900/85 px-3 py-2 text-xs font-semibold text-rose-100 shadow-lg';
+      badge.textContent = 'Notifications blocked on this device.';
+    } else {
+      badge.className = 'fixed bottom-16 left-4 z-[90] max-w-[85vw] rounded-xl border border-sky-300/50 bg-slate-900/90 px-3 py-2 text-xs font-semibold text-slate-100 shadow-lg';
+      badge.textContent = 'Notifications are off. Enable to receive live alerts.';
+    }
+
+    badge.style.display = 'block';
+  }
+
+  function updatePermissionLabelTargets(state) {
+    var label = permissionStateLabel(state);
+    qsa('.gt-live-notification-permission').forEach(function (node) {
+      node.textContent = label;
+      node.setAttribute('data-permission-state', state);
+    });
+  }
+
+  function syncPermissionState() {
+    var state = getNotificationPermissionState();
+    setStoredValue(notificationPermissionKey, state);
+    updatePermissionStatusBadge(state);
+    updatePermissionLabelTargets(state);
+    emitPermissionUpdate(state);
+    return state;
+  }
+
+  function cleanupPushSubscriptionIfDenied() {
+    if (!pushEnabled || userId <= 0 || pushDeniedCleanupInFlight) {
+      return;
+    }
+    if (!('serviceWorker' in navigator)) {
+      return;
+    }
+
+    pushDeniedCleanupInFlight = true;
+    navigator.serviceWorker.ready.then(function (registration) {
+      if (!registration || !registration.pushManager || typeof registration.pushManager.getSubscription !== 'function') {
+        return null;
+      }
+      return registration.pushManager.getSubscription();
+    }).then(function (existing) {
+      if (!existing) {
+        return null;
+      }
+      var endpoint = String((existing.toJSON && existing.toJSON().endpoint) || '');
+      return existing.unsubscribe().catch(function () { return false; }).then(function () {
+        return unsubscribePushEndpoint(endpoint);
+      });
+    }).catch(function () {
+      return null;
+    }).finally(function () {
+      setStoredValue(lastPushEndpointKey, '');
+      pushDeniedCleanupInFlight = false;
+    });
+  }
+
+  function refreshPermissionState() {
+    var state = syncPermissionState();
+    if (state === 'granted') {
+      setStoredValue(alertsOptInKey, 1);
+      syncPushSubscription();
+    }
+    if (state === 'denied') {
+      setStoredValue(alertsOptInKey, 0);
+      cleanupPushSubscriptionIfDenied();
+    }
+    return state;
+  }
+
+  function setupPermissionWatcher() {
+    if (!('Notification' in window)) {
+      syncPermissionState();
+      return;
+    }
+
+    refreshPermissionState();
+
+    if (navigator.permissions && typeof navigator.permissions.query === 'function') {
+      navigator.permissions.query({ name: 'notifications' }).then(function (status) {
+        if (!status) {
+          return;
+        }
+        status.onchange = function () {
+          refreshPermissionState();
+        };
+      }).catch(function () {
+        return null;
+      });
+    }
+
+    window.addEventListener('focus', refreshPermissionState);
+    document.addEventListener('visibilitychange', function () {
+      if (!document.hidden) {
+        refreshPermissionState();
+      }
+    });
+  }
+
   function fetchPushConfig() {
     if (pushConfigCache) {
       return Promise.resolve(pushConfigCache);
@@ -129,6 +310,7 @@
       return;
     }
     if (Notification.permission === 'denied') {
+      cleanupPushSubscriptionIfDenied();
       return;
     }
 
@@ -363,36 +545,63 @@
     if (!notificationsEnabled || userId <= 0 || !('Notification' in window)) {
       return;
     }
-    if (Notification.permission === 'granted') {
-      setStoredValue(alertsOptInKey, 1);
-      return;
-    }
-
-    var optedIn = getStoredNumber(alertsOptInKey) === 1;
-    if (optedIn) {
-      return;
-    }
-
     var button = ensureFloatingAction(
       'gtEnableAlertsButton',
       alertsToggleLabel,
       'fixed bottom-4 left-4 z-[90] rounded-xl border border-white/20 bg-slate-900/90 px-4 py-2 text-sm font-semibold text-slate-100 shadow-lg hover:bg-slate-800'
     );
-    button.style.display = 'inline-flex';
-    button.onclick = function () {
-      Notification.requestPermission().then(function (permission) {
-        if (permission === 'granted') {
-          setStoredValue(alertsOptInKey, 1);
-          button.style.display = 'none';
-          notifyViaBrowser(appName, 'Instant alerts enabled.', '/notifications/', 'gigtune-alerts-enabled');
-          syncPushSubscription();
-        } else {
+
+    function hideButton() {
+      button.style.display = 'none';
+    }
+
+    function showDefaultButton() {
+      button.className = 'fixed bottom-4 left-4 z-[90] rounded-xl border border-white/20 bg-slate-900/90 px-4 py-2 text-sm font-semibold text-slate-100 shadow-lg hover:bg-slate-800';
+      button.textContent = alertsToggleLabel;
+      button.style.display = 'inline-flex';
+      button.onclick = function () {
+        Notification.requestPermission().then(function (permission) {
+          if (permission === 'granted') {
+            setStoredValue(alertsOptInKey, 1);
+            hideButton();
+            refreshPermissionState();
+            notifyViaBrowser(appName, 'Instant alerts enabled.', '/notifications/', 'gigtune-alerts-enabled');
+            syncPushSubscription();
+            return;
+          }
           setStoredValue(alertsOptInKey, 0);
-        }
-      }).catch(function () {
-        setStoredValue(alertsOptInKey, 0);
-      });
-    };
+          refreshPermissionState();
+        }).catch(function () {
+          setStoredValue(alertsOptInKey, 0);
+          refreshPermissionState();
+        });
+      };
+    }
+
+    function showBlockedButton() {
+      button.className = 'fixed bottom-4 left-4 z-[90] rounded-xl border border-rose-400/60 bg-rose-900/85 px-4 py-2 text-sm font-semibold text-rose-100 shadow-lg hover:bg-rose-800';
+      button.textContent = 'Notifications blocked - open settings';
+      button.style.display = 'inline-flex';
+      button.onclick = function () {
+        showEnableNotificationInstructions();
+      };
+    }
+
+    function refreshButton() {
+      var state = getNotificationPermissionState();
+      if (state === 'granted' || state === 'unsupported') {
+        hideButton();
+        return;
+      }
+      if (state === 'denied') {
+        showBlockedButton();
+        return;
+      }
+      showDefaultButton();
+    }
+
+    refreshButton();
+    window.addEventListener('gigtune:notifications:permission', refreshButton);
   }
 
   function maybeNotifyForNewItems(items) {
@@ -482,11 +691,12 @@
   }
 
   function init() {
+    setupPermissionWatcher();
     setupInstallPrompt();
     setupAlertsOptIn();
     maybeRenderInstallPrompt();
     window.setTimeout(maybeRenderInstallPrompt, 3000);
-    syncPushSubscription();
+    refreshPermissionState();
 
     if (notificationsEnabled && userId > 0) {
       pollNotifications();
@@ -494,7 +704,7 @@
       document.addEventListener('visibilitychange', function () {
         if (!document.hidden) {
           pollNotifications();
-          syncPushSubscription();
+          refreshPermissionState();
         }
       });
     }

@@ -84,6 +84,6 @@
             pollIntervalMs: 20000
         });
     </script>
-    <script src="/wp-content/themes/gigtune-canon/assets/js/gigtune-live.js?v=20260306f"></script>
+    <script src="/wp-content/themes/gigtune-canon/assets/js/gigtune-live.js?v=20260306g"></script>
 </body>
 </html>

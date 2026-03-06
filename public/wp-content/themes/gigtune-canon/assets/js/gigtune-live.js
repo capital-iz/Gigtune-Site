@@ -702,19 +702,10 @@
     }
 
     if (!deferredInstallPrompt) {
-      if (installFallbackShown) {
-        return;
+      var hiddenButton = qs('#gtInstallAppButton');
+      if (hiddenButton) {
+        hiddenButton.style.display = 'none';
       }
-      installFallbackShown = true;
-      var fallback = ensureFloatingAction(
-        'gtInstallAppButton',
-        installLabel,
-        'fixed bottom-4 right-4 z-[90] rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg hover:from-blue-500 hover:to-indigo-500'
-      );
-      fallback.style.display = 'inline-flex';
-      fallback.onclick = function () {
-        window.alert('Use your browser menu and choose \"Install app\" or \"Add to Home Screen\".');
-      };
       return;
     }
 

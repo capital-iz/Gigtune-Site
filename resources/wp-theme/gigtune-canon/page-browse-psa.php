@@ -10,12 +10,12 @@ if (!defined('ABSPATH')) exit;
 <main class="flex-1">
   <div class="w-full px-4 sm:px-6 lg:px-10 xl:px-14 2xl:px-16 py-12">
     <div class="mb-10">
-      <h1 class="text-3xl md:text-4xl font-bold text-white mb-3">Browse Client PSAs</h1>
-      <p class="text-slate-400 text-base md:text-lg max-w-2xl">Review and manage client public service announcements and applications.</p>
+      <h1 class="text-3xl md:text-4xl font-bold text-white mb-3">Administrator PSA Moderation</h1>
+      <p class="text-slate-400 text-base md:text-lg max-w-2xl">Review, hide, restore, and permanently delete client posts with system-wide status updates.</p>
     </div>
 
     <div class="mt-8">
-      <?php echo do_shortcode('[gigtune_open_client_posts]'); ?>
+      <?php echo do_shortcode('[gigtune_admin_psa_moderation]'); ?>
     </div>
   </div>
 </main>

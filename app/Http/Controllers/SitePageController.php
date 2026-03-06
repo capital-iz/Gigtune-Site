@@ -76,6 +76,10 @@ class SitePageController extends Controller
             return redirect((string) ($currentUser['dashboard_url'] ?? '/'), 302);
         }
 
+        if ($slug === 'browse-psa' && (!is_array($currentUser) || !$this->isAdminLikeUser($currentUser))) {
+            return $this->renderTemplate($request, $currentUser, null, '404.php', 404);
+        }
+
         if (in_array($slug, ['login', 'sign-in'], true) && strtoupper($request->method()) === 'POST') {
             return $this->handleSignIn($request);
         }

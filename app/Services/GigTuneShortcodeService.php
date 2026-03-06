@@ -26,6 +26,7 @@ class GigTuneShortcodeService
         'gigtune_client_bookings_archive' => 'clientBookingsArchive',
         'gigtune_artist_feed' => 'artistFeed',
         'gigtune_open_client_posts' => 'artistFeed',
+        'gigtune_admin_psa_moderation' => 'adminPsaModeration',
         'gigtune_artist_directory' => 'artistDirectory',
         'gigtune_featured_artists_simple' => 'featuredArtists',
         'gigtune_client_directory' => 'clientDirectory',
@@ -445,6 +446,7 @@ class GigTuneShortcodeService
     private function artistBookingsArchive(array $a, ?array $u, array $ctx = []): string { return $this->bookingsTable($u, true, $ctx, true); }
     private function clientBookingsArchive(array $a, ?array $u, array $ctx = []): string { return $this->bookingsTable($u, false, $ctx, true); }
     private function artistFeed(array $a, ?array $u = null, array $ctx = []): string { return $this->renderPsaFeed($a, $u, $ctx); }
+    private function adminPsaModeration(array $a, ?array $u = null, array $ctx = []): string { return $this->renderAdminPsaModeration($a, $u, $ctx); }
     private function artistDirectory(array $a): string { return $this->artistCards(max(1, min(60, (int) ($a['limit'] ?? 18)))); }
     private function featuredArtists(array $a): string { return $this->artistCards(max(1, min(12, (int) ($a['limit'] ?? 6)))); }
     private function clientDirectory(array $a): string
@@ -3439,14 +3441,10 @@ class GigTuneShortcodeService
             'only_unread' => '1',
             'include_archived' => '0',
         ])['total'] ?? 0);
-        $badge = $count > 0 ? (string) $count : '';
-        $badgeClass = $count > 0
-            ? 'inline-flex min-w-[1.2rem] items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] font-semibold text-white'
-            : 'inline-flex min-w-[1.2rem] items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] font-semibold text-white hidden';
+        $label = $count > 0 ? ('Notifications (' . $count . ')') : 'Notifications';
 
-        return '<span class="inline-flex items-center gap-2">'
-            . '<span class="text-sm text-slate-200 hover:text-white gt-live-notification-label">Notifications</span>'
-            . '<span class="gt-live-notification-count ' . e($badgeClass) . '" data-hide-zero="1">' . e($badge) . '</span>'
+        return '<span class="inline-flex items-center">'
+            . '<span class="text-sm text-slate-200 hover:text-white gt-live-notification-label">' . e($label) . '</span>'
             . '</span>';
     }
     private function notificationSettings(array $a, ?array $u, array $ctx = []): string
@@ -4838,6 +4836,214 @@ class GigTuneShortcodeService
         return $out . '</div>';
     }
 
+    private function renderAdminPsaModeration(array $a, ?array $u, array $ctx = []): string
+    {
+        $request = $this->req($ctx);
+        $uid = (int) ($u['id'] ?? 0);
+        $isAdmin = (bool) ($u['is_admin'] ?? false);
+
+        if (!$isAdmin) {
+            return '<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">Administrator access only.</div>';
+        }
+
+        $statusMessage = '';
+        $errorMessage = '';
+        if ($request !== null && strtoupper((string) $request->method()) === 'POST') {
+            if ((string) $request->input('gigtune_psa_admin_hide_submit', '') === '1') {
+                $nonce = trim((string) $request->input('gigtune_psa_admin_hide_nonce', ''));
+                $psaId = abs((int) $request->input('gigtune_psa_id', 0));
+                $hideReason = trim((string) $request->input('gigtune_psa_admin_hide_reason', ''));
+                if (!$this->verifyWpNonce($nonce, 'gigtune_psa_admin_hide_action') || $psaId <= 0) {
+                    $errorMessage = 'Invalid hide request.';
+                } elseif ($hideReason === '') {
+                    $errorMessage = 'A hide reason is required.';
+                } elseif (!$this->isPostType($psaId, 'gigtune_psa')) {
+                    $errorMessage = 'Client post not found.';
+                } else {
+                    $existingStatus = strtolower(trim((string) $this->getLatestPostMeta($psaId, 'gigtune_psa_status')));
+                    if ($existingStatus === '') {
+                        $existingStatus = 'open';
+                    }
+                    if ($existingStatus !== 'hidden_by_admin') {
+                        $this->upsertPostMeta($psaId, 'gigtune_psa_status_before_admin_hide', $existingStatus);
+                    }
+
+                    $this->db()->table($this->posts())
+                        ->where('ID', $psaId)
+                        ->where('post_type', 'gigtune_psa')
+                        ->update([
+                            'post_status' => 'private',
+                            'post_modified' => now()->format('Y-m-d H:i:s'),
+                            'post_modified_gmt' => now('UTC')->format('Y-m-d H:i:s'),
+                        ]);
+                    $this->upsertPostMeta($psaId, 'gigtune_psa_status', 'hidden_by_admin');
+                    $this->upsertPostMeta($psaId, 'gigtune_psa_hidden_by_admin', '1');
+                    $this->upsertPostMeta($psaId, 'gigtune_psa_hidden_at', (string) now()->timestamp);
+                    $this->upsertPostMeta($psaId, 'gigtune_psa_hidden_by_admin_user_id', (string) $uid);
+                    $this->upsertPostMeta($psaId, 'gigtune_psa_hidden_reason', $hideReason);
+
+                    $ownerId = (int) $this->getLatestPostMeta($psaId, 'gigtune_psa_client_user_id');
+                    if ($ownerId > 0) {
+                        $this->createNotification(
+                            $ownerId,
+                            'psa',
+                            'Your client post #' . $psaId . ' was hidden by Administrator. Reason: ' . $hideReason,
+                            ['object_type' => 'psa', 'object_id' => $psaId]
+                        );
+                    }
+                    $statusMessage = 'Client post #' . $psaId . ' hidden.';
+                }
+            } elseif ((string) $request->input('gigtune_psa_admin_unhide_submit', '') === '1') {
+                $nonce = trim((string) $request->input('gigtune_psa_admin_unhide_nonce', ''));
+                $psaId = abs((int) $request->input('gigtune_psa_id', 0));
+                if (!$this->verifyWpNonce($nonce, 'gigtune_psa_admin_unhide_action') || $psaId <= 0) {
+                    $errorMessage = 'Invalid restore request.';
+                } elseif (!$this->isPostType($psaId, 'gigtune_psa')) {
+                    $errorMessage = 'Client post not found.';
+                } else {
+                    $restoreStatus = strtolower(trim((string) $this->getLatestPostMeta($psaId, 'gigtune_psa_status_before_admin_hide')));
+                    if ($restoreStatus === '' || $restoreStatus === 'hidden_by_admin') {
+                        $restoreStatus = 'open';
+                    }
+                    $this->db()->table($this->posts())
+                        ->where('ID', $psaId)
+                        ->where('post_type', 'gigtune_psa')
+                        ->update([
+                            'post_status' => 'publish',
+                            'post_modified' => now()->format('Y-m-d H:i:s'),
+                            'post_modified_gmt' => now('UTC')->format('Y-m-d H:i:s'),
+                        ]);
+                    $this->upsertPostMeta($psaId, 'gigtune_psa_status', $restoreStatus);
+                    $this->upsertPostMeta($psaId, 'gigtune_psa_hidden_by_admin', '0');
+                    $this->upsertPostMeta($psaId, 'gigtune_psa_hidden_reason', '');
+                    $this->upsertPostMeta($psaId, 'gigtune_psa_hidden_cleared_at', (string) now()->timestamp);
+                    $this->upsertPostMeta($psaId, 'gigtune_psa_hidden_cleared_by_admin_user_id', (string) $uid);
+
+                    $ownerId = (int) $this->getLatestPostMeta($psaId, 'gigtune_psa_client_user_id');
+                    if ($ownerId > 0) {
+                        $this->createNotification(
+                            $ownerId,
+                            'psa',
+                            'Your client post #' . $psaId . ' is visible again.',
+                            ['object_type' => 'psa', 'object_id' => $psaId]
+                        );
+                    }
+                    $statusMessage = 'Client post #' . $psaId . ' restored.';
+                }
+            } elseif ((string) $request->input('gigtune_psa_admin_delete_submit', '') === '1') {
+                $nonce = trim((string) $request->input('gigtune_psa_admin_delete_nonce', ''));
+                $psaId = abs((int) $request->input('gigtune_psa_id', 0));
+                if (!$this->verifyWpNonce($nonce, 'gigtune_psa_admin_delete_action') || $psaId <= 0) {
+                    $errorMessage = 'Invalid delete request.';
+                } elseif (!$this->isPostType($psaId, 'gigtune_psa')) {
+                    $errorMessage = 'Client post not found.';
+                } else {
+                    $ownerId = (int) $this->getLatestPostMeta($psaId, 'gigtune_psa_client_user_id');
+                    $this->deletePostHard($psaId);
+                    if ($ownerId > 0) {
+                        $this->createNotification(
+                            $ownerId,
+                            'psa',
+                            'Your client post #' . $psaId . ' was removed by Administrator.',
+                            ['object_type' => 'psa', 'object_id' => $psaId]
+                        );
+                    }
+                    $statusMessage = 'Client post #' . $psaId . ' deleted permanently.';
+                }
+            }
+        }
+
+        $state = strtolower(trim((string) ($request?->query('state', 'all') ?? 'all')));
+        if (!in_array($state, ['all', 'open', 'closed', 'hidden'], true)) {
+            $state = 'all';
+        }
+
+        $allPosts = $this->fetchPsaModerationPosts('all');
+        $openCount = 0;
+        $closedCount = 0;
+        $hiddenCount = 0;
+        foreach ($allPosts as $row) {
+            $rowStatus = strtolower(trim((string) ($row['status'] ?? 'open')));
+            if ($rowStatus === 'hidden_by_admin') {
+                $hiddenCount++;
+            } elseif ($rowStatus === 'closed') {
+                $closedCount++;
+            } else {
+                $openCount++;
+            }
+        }
+
+        $posts = $this->fetchPsaModerationPosts($state);
+
+        $html = '<div class="space-y-6">';
+        if ($statusMessage !== '') {
+            $html .= '<div class="rounded-2xl border border-emerald-500/30 bg-emerald-500/10 p-4"><p class="text-emerald-200 font-semibold">' . e($statusMessage) . '</p></div>';
+        }
+        if ($errorMessage !== '') {
+            $html .= '<div class="rounded-2xl border border-rose-500/30 bg-rose-500/10 p-4"><p class="text-rose-200 font-semibold">Moderation request failed.</p><p class="text-rose-200/80 text-sm mt-1">' . e($errorMessage) . '</p></div>';
+        }
+
+        $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
+        $html .= '<h2 class="text-lg font-semibold text-white">Administrator Client Post Moderation</h2>';
+        $html .= '<p class="mt-2 text-sm text-slate-300">Manage open posts system-wide. Hidden posts require a reason and notify the client automatically.</p>';
+        $html .= '<div class="mt-4 flex flex-wrap gap-2 text-xs">';
+        $html .= '<a href="/browse-psa/?state=all" class="rounded-full border border-white/15 px-3 py-1.5 ' . ($state === 'all' ? 'bg-white/15 text-white' : 'text-slate-300 hover:text-white') . '">All (' . e((string) count($allPosts)) . ')</a>';
+        $html .= '<a href="/browse-psa/?state=open" class="rounded-full border border-white/15 px-3 py-1.5 ' . ($state === 'open' ? 'bg-white/15 text-white' : 'text-slate-300 hover:text-white') . '">Open (' . e((string) $openCount) . ')</a>';
+        $html .= '<a href="/browse-psa/?state=closed" class="rounded-full border border-white/15 px-3 py-1.5 ' . ($state === 'closed' ? 'bg-white/15 text-white' : 'text-slate-300 hover:text-white') . '">Closed (' . e((string) $closedCount) . ')</a>';
+        $html .= '<a href="/browse-psa/?state=hidden" class="rounded-full border border-white/15 px-3 py-1.5 ' . ($state === 'hidden' ? 'bg-white/15 text-white' : 'text-slate-300 hover:text-white') . '">Hidden (' . e((string) $hiddenCount) . ')</a>';
+        $html .= '</div>';
+        $html .= '</div>';
+
+        $html .= '<div class="space-y-4">';
+        if ($posts === []) {
+            $html .= '<div class="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">No client posts found.</div>';
+        } else {
+            foreach ($posts as $post) {
+                $psaId = (int) ($post['id'] ?? 0);
+                $rowStatus = strtolower(trim((string) ($post['status'] ?? 'open')));
+                $statusLabel = $this->toSentenceCase(str_replace('_', ' ', $rowStatus));
+                $title = trim((string) ($post['title'] ?? 'Client post'));
+                $content = trim((string) ($post['content'] ?? ''));
+                $ownerLabel = trim((string) ($post['owner_label'] ?? 'Unknown client'));
+                $hiddenReason = trim((string) ($post['hidden_reason'] ?? ''));
+
+                $html .= '<article class="rounded-xl border border-white/10 bg-white/5 p-4">';
+                $html .= '<div class="flex flex-wrap items-start justify-between gap-3">';
+                $html .= '<div><div class="text-xs text-slate-400">Client post #' . e((string) $psaId) . ' - <span class="text-slate-200">' . e($statusLabel) . '</span></div><h3 class="mt-1 text-base font-semibold text-white">' . e($title) . '</h3></div>';
+                $html .= '<div class="text-xs text-slate-400">Owner: <span class="text-slate-200">' . e($ownerLabel) . '</span></div>';
+                $html .= '</div>';
+                if ($content !== '') {
+                    $html .= '<p class="mt-2 text-sm text-slate-300">' . e($content) . '</p>';
+                }
+                if (trim((string) ($post['location_text'] ?? '')) !== '') {
+                    $html .= '<p class="mt-2 text-xs text-slate-400">Location: <span class="text-slate-200">' . e((string) $post['location_text']) . '</span></p>';
+                }
+                $budgetMin = (int) ($post['budget_min'] ?? 0);
+                $budgetMax = (int) ($post['budget_max'] ?? 0);
+                if ($budgetMin > 0 || $budgetMax > 0) {
+                    $html .= '<p class="mt-1 text-xs text-slate-400">Budget: <span class="text-slate-200">ZAR ' . e(number_format($budgetMin)) . ($budgetMax > 0 ? (' - ' . e(number_format($budgetMax))) : '') . '</span></p>';
+                }
+                if ($hiddenReason !== '') {
+                    $html .= '<p class="mt-2 text-xs text-amber-200">Hide reason: ' . e($hiddenReason) . '</p>';
+                }
+
+                $html .= '<div class="mt-3 flex flex-wrap gap-2">';
+                $html .= '<a href="/posts-page/?view=applications&psa_id=' . $psaId . '" class="inline-flex items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold text-white bg-white/10 hover:bg-white/15">View applications</a>';
+                if ($rowStatus === 'hidden_by_admin') {
+                    $html .= '<form method="post" class="inline-flex"><input type="hidden" name="gigtune_psa_id" value="' . $psaId . '"><input type="hidden" name="gigtune_psa_admin_unhide_nonce" value="' . e($this->createWpNonce('gigtune_psa_admin_unhide_action')) . '"><button type="submit" name="gigtune_psa_admin_unhide_submit" value="1" class="inline-flex items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold text-white bg-emerald-600/90 hover:bg-emerald-500">Unhide post</button></form>';
+                } else {
+                    $html .= '<form method="post" class="flex flex-wrap items-center gap-2"><input type="hidden" name="gigtune_psa_id" value="' . $psaId . '"><input type="hidden" name="gigtune_psa_admin_hide_nonce" value="' . e($this->createWpNonce('gigtune_psa_admin_hide_action')) . '"><input type="text" name="gigtune_psa_admin_hide_reason" required maxlength="500" placeholder="Reason for hiding this post" class="w-full min-w-[220px] rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-xs text-white md:w-auto"><button type="submit" name="gigtune_psa_admin_hide_submit" value="1" class="inline-flex items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold text-white bg-amber-600/90 hover:bg-amber-500">Hide post</button></form>';
+                }
+                $html .= '<form method="post" onsubmit="return confirm(\'Delete this client post permanently? This cannot be undone.\');"><input type="hidden" name="gigtune_psa_id" value="' . $psaId . '"><input type="hidden" name="gigtune_psa_admin_delete_nonce" value="' . e($this->createWpNonce('gigtune_psa_admin_delete_action')) . '"><button type="submit" name="gigtune_psa_admin_delete_submit" value="1" class="inline-flex items-center justify-center rounded-lg px-3 py-2 text-xs font-semibold text-white bg-rose-600/90 hover:bg-rose-500">Delete permanently</button></form>';
+                $html .= '</div>';
+                $html .= '</article>';
+            }
+        }
+        $html .= '</div>';
+
+        return $html . '</div>';
+    }
+
     private function renderPsaFeed(array $a, ?array $u, array $ctx = []): string
     {
         $request = $this->req($ctx);
@@ -5089,7 +5295,7 @@ class GigTuneShortcodeService
             $markReadId = abs((int) $request->query('notification_id', 0));
             if ($markReadId > 0) {
                 try {
-                    $this->notifications->markRead($markReadId, $id, (bool) ($u['is_admin'] ?? false));
+                    $this->notifications->markRead($markReadId, $uid, (bool) ($u['is_admin'] ?? false));
                 } catch (\Throwable) {
                     // Ignore read update errors and continue rendering the page.
                 }
@@ -5371,6 +5577,128 @@ class GigTuneShortcodeService
                 'location_city' => trim((string) ($m['gigtune_psa_location_city'] ?? '')),
             ];
         }
+        return $items;
+    }
+
+    /** @return array<int,array<string,mixed>> */
+    private function fetchPsaModerationPosts(string $state = 'all'): array
+    {
+        $state = strtolower(trim($state));
+        if (!in_array($state, ['all', 'open', 'closed', 'hidden'], true)) {
+            $state = 'all';
+        }
+
+        $rows = $this->db()->table($this->posts())
+            ->where('post_type', 'gigtune_psa')
+            ->whereIn('post_status', ['publish', 'private'])
+            ->orderByDesc('ID')
+            ->limit(300)
+            ->get(['ID', 'post_title', 'post_content', 'post_status']);
+        if ($rows->isEmpty()) {
+            return [];
+        }
+
+        $ids = [];
+        foreach ($rows as $row) {
+            $ids[] = (int) $row->ID;
+        }
+        $meta = $this->postMetaMap($ids, [
+            'gigtune_psa_status',
+            'gigtune_psa_status_before_admin_hide',
+            'gigtune_psa_budget_min',
+            'gigtune_psa_budget_max',
+            'gigtune_psa_location_text',
+            'gigtune_psa_location_street',
+            'gigtune_psa_location_suburb',
+            'gigtune_psa_location_province',
+            'gigtune_psa_location_city',
+            'gigtune_psa_location_postal_code',
+            'gigtune_psa_location_country',
+            'gigtune_psa_client_user_id',
+            'gigtune_client_user_id',
+            'gigtune_psa_hidden_by_admin',
+            'gigtune_psa_hidden_reason',
+            'gigtune_psa_hidden_at',
+        ]);
+
+        $ownerIds = [];
+        foreach ($ids as $id) {
+            $m = $meta[$id] ?? [];
+            $ownerId = (int) ($m['gigtune_psa_client_user_id'] ?? $m['gigtune_client_user_id'] ?? 0);
+            if ($ownerId > 0) {
+                $ownerIds[] = $ownerId;
+            }
+        }
+        $ownerIds = array_values(array_unique($ownerIds));
+        $ownerMap = [];
+        if ($ownerIds !== []) {
+            $ownerRows = $this->db()->table($this->usersTable())
+                ->whereIn('ID', $ownerIds)
+                ->get(['ID', 'display_name', 'user_login']);
+            foreach ($ownerRows as $ownerRow) {
+                $label = trim((string) ($ownerRow->display_name ?? ''));
+                if ($label === '') {
+                    $label = trim((string) ($ownerRow->user_login ?? ''));
+                }
+                $ownerMap[(int) $ownerRow->ID] = $label !== '' ? $label : ('User #' . (int) $ownerRow->ID);
+            }
+        }
+
+        $items = [];
+        foreach ($rows as $row) {
+            $id = (int) $row->ID;
+            $m = $meta[$id] ?? [];
+            $metaStatus = strtolower(trim((string) ($m['gigtune_psa_status'] ?? 'open')));
+            if ($metaStatus === '') {
+                $metaStatus = 'open';
+            }
+            $isHidden = (string) ($row->post_status ?? '') === 'private'
+                || (string) ($m['gigtune_psa_hidden_by_admin'] ?? '') === '1'
+                || $metaStatus === 'hidden_by_admin';
+            $effectiveStatus = $isHidden ? 'hidden_by_admin' : $metaStatus;
+            if ($effectiveStatus === '') {
+                $effectiveStatus = 'open';
+            }
+
+            if ($state === 'open' && $effectiveStatus !== 'open') {
+                continue;
+            }
+            if ($state === 'closed' && $effectiveStatus !== 'closed') {
+                continue;
+            }
+            if ($state === 'hidden' && $effectiveStatus !== 'hidden_by_admin') {
+                continue;
+            }
+
+            $ownerId = (int) ($m['gigtune_psa_client_user_id'] ?? $m['gigtune_client_user_id'] ?? 0);
+            $locationText = trim((string) ($m['gigtune_psa_location_text'] ?? ''));
+            if ($locationText === '') {
+                $locationText = implode(', ', array_values(array_filter([
+                    trim((string) ($m['gigtune_psa_location_street'] ?? '')),
+                    trim((string) ($m['gigtune_psa_location_suburb'] ?? '')),
+                    trim((string) ($m['gigtune_psa_location_city'] ?? '')),
+                    trim((string) ($m['gigtune_psa_location_province'] ?? '')),
+                    trim((string) ($m['gigtune_psa_location_postal_code'] ?? '')),
+                    trim((string) ($m['gigtune_psa_location_country'] ?? '')),
+                ], static fn ($value): bool => $value !== '')));
+            }
+
+            $items[] = [
+                'id' => $id,
+                'title' => (string) ($row->post_title ?? ''),
+                'content' => (string) ($row->post_content ?? ''),
+                'status' => $effectiveStatus,
+                'post_status' => (string) ($row->post_status ?? ''),
+                'owner_user_id' => $ownerId,
+                'owner_label' => $ownerId > 0 ? (string) ($ownerMap[$ownerId] ?? ('User #' . $ownerId)) : 'Unknown client',
+                'budget_min' => (int) ($m['gigtune_psa_budget_min'] ?? 0),
+                'budget_max' => (int) ($m['gigtune_psa_budget_max'] ?? 0),
+                'location_text' => $locationText,
+                'hidden_reason' => trim((string) ($m['gigtune_psa_hidden_reason'] ?? '')),
+                'hidden_at' => (int) ($m['gigtune_psa_hidden_at'] ?? 0),
+            ];
+        }
+
         return $items;
     }
 

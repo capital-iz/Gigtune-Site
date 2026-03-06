@@ -24,8 +24,7 @@
                 <a href="/admin-dashboard" class="text-lg font-semibold text-white">GigTune Admin</a>
                 <a href="/gts-admin-users" class="rounded-md border border-white/10 bg-white/10 px-2.5 py-1 text-xs text-slate-100 hover:bg-white/15">Administrator</a>
                 <a href="/admin-dashboard" class="rounded-md border border-white/10 bg-white/10 px-2.5 py-1 text-xs text-slate-100 hover:bg-white/15 inline-flex items-center gap-2">
-                    Notifications
-                    <span class="gt-live-notification-count inline-flex min-w-[1.2rem] items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] font-semibold text-white hidden" data-hide-zero="1"></span>
+                    <span class="gt-live-notification-label">Notifications</span>
                 </a>
             </div>
             <div class="flex items-center gap-3 text-sm">

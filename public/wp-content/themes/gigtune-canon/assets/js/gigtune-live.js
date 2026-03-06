@@ -28,6 +28,7 @@
   var installFallbackShown = false;
   var pushSyncInFlight = false;
   var pushDeniedCleanupInFlight = false;
+  var swControllerReloaded = false;
   var pushConfigCache = null;
 
   function inStandaloneMode() {
@@ -390,10 +391,16 @@
       if (count > 0) {
         node.textContent = String(count);
         node.classList.remove('hidden');
+        if (node.style) {
+          node.style.display = 'inline-flex';
+        }
       } else {
         node.textContent = '';
         if (hideZero) {
           node.classList.add('hidden');
+          if (node.style) {
+            node.style.display = 'none';
+          }
         }
       }
     });
@@ -423,6 +430,161 @@
     button.style.display = 'none';
     document.body.appendChild(button);
     return button;
+  }
+
+  function ensureMobileNotificationFab() {
+    var existing = document.getElementById('gtMobileNotificationFab');
+    if (existing) {
+      return existing;
+    }
+
+    var link = document.createElement('a');
+    link.id = 'gtMobileNotificationFab';
+    link.href = '/notifications/';
+    link.setAttribute('aria-label', 'Open notifications');
+    link.style.position = 'fixed';
+    link.style.right = '16px';
+    link.style.bottom = '88px';
+    link.style.width = '54px';
+    link.style.height = '54px';
+    link.style.borderRadius = '9999px';
+    link.style.display = 'none';
+    link.style.alignItems = 'center';
+    link.style.justifyContent = 'center';
+    link.style.zIndex = '95';
+    link.style.background = 'rgba(15, 23, 42, 0.92)';
+    link.style.border = '1px solid rgba(148, 163, 184, 0.35)';
+    link.style.backdropFilter = 'blur(8px)';
+    link.style.boxShadow = '0 10px 26px rgba(2, 6, 23, 0.45)';
+    link.style.textDecoration = 'none';
+
+    var idle = document.createElement('img');
+    idle.src = '/wp-content/themes/gigtune-canon/assets/img/notification-bell-idle.png';
+    idle.alt = '';
+    idle.className = 'gt-live-mobile-bell-idle';
+    idle.style.width = '24px';
+    idle.style.height = '24px';
+    idle.style.objectFit = 'contain';
+
+    var unread = document.createElement('img');
+    unread.src = '/wp-content/themes/gigtune-canon/assets/img/notification-bell-unread.png';
+    unread.alt = '';
+    unread.className = 'gt-live-mobile-bell-unread hidden';
+    unread.style.width = '24px';
+    unread.style.height = '24px';
+    unread.style.objectFit = 'contain';
+
+    var count = document.createElement('span');
+    count.className = 'gt-live-notification-count hidden';
+    count.setAttribute('data-hide-zero', '1');
+    count.style.position = 'absolute';
+    count.style.top = '-4px';
+    count.style.right = '-4px';
+    count.style.minWidth = '18px';
+    count.style.height = '18px';
+    count.style.padding = '0 4px';
+    count.style.display = 'none';
+    count.style.alignItems = 'center';
+    count.style.justifyContent = 'center';
+    count.style.borderRadius = '9999px';
+    count.style.background = '#f43f5e';
+    count.style.color = '#fff';
+    count.style.fontSize = '10px';
+    count.style.fontWeight = '700';
+    count.style.lineHeight = '1';
+
+    link.appendChild(idle);
+    link.appendChild(unread);
+    link.appendChild(count);
+    document.body.appendChild(link);
+    return link;
+  }
+
+  function setupMobileNotificationFab() {
+    if (!notificationsEnabled || userId <= 0) {
+      return;
+    }
+
+    var fab = ensureMobileNotificationFab();
+    var mediaQuery = window.matchMedia ? window.matchMedia('(max-width: 767.98px)') : null;
+
+    function updateFabVisibility() {
+      var isMobile = mediaQuery ? !!mediaQuery.matches : (window.innerWidth <= 767);
+      fab.style.display = isMobile ? 'inline-flex' : 'none';
+    }
+
+    updateFabVisibility();
+    window.addEventListener('resize', updateFabVisibility);
+    if (mediaQuery && typeof mediaQuery.addEventListener === 'function') {
+      mediaQuery.addEventListener('change', updateFabVisibility);
+    }
+  }
+
+  function setupServiceWorkerAutoUpdate() {
+    if (!('serviceWorker' in navigator)) {
+      return;
+    }
+
+    navigator.serviceWorker.addEventListener('controllerchange', function () {
+      if (swControllerReloaded) {
+        return;
+      }
+      swControllerReloaded = true;
+      window.location.reload();
+    });
+
+    function watchRegistration(registration) {
+      if (!registration) {
+        return;
+      }
+
+      if (registration.waiting) {
+        try {
+          registration.waiting.postMessage({ type: 'GT_SKIP_WAITING' });
+        } catch (e) {
+          return;
+        }
+      }
+
+      registration.addEventListener('updatefound', function () {
+        var installing = registration.installing;
+        if (!installing) {
+          return;
+        }
+        installing.addEventListener('statechange', function () {
+          if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+            try {
+              installing.postMessage({ type: 'GT_SKIP_WAITING' });
+            } catch (e) {
+              return;
+            }
+          }
+        });
+      });
+
+      registration.update().catch(function () {
+        return null;
+      });
+    }
+
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.getRegistration().then(watchRegistration).catch(function () {
+        return null;
+      });
+    });
+
+    window.setInterval(function () {
+      navigator.serviceWorker.getRegistration().then(function (registration) {
+        if (!registration) {
+          return;
+        }
+        registration.update().catch(function () {
+          return null;
+        });
+      }).catch(function () {
+        return null;
+      });
+    }, 300000);
   }
 
   function notifyViaBrowser(title, body, url, tag) {
@@ -699,9 +861,11 @@
   }
 
   function init() {
+    setupServiceWorkerAutoUpdate();
     setupPermissionWatcher();
     setupInstallPrompt();
     setupAlertsOptIn();
+    setupMobileNotificationFab();
     maybeRenderInstallPrompt();
     window.setTimeout(maybeRenderInstallPrompt, 3000);
     refreshPermissionState();

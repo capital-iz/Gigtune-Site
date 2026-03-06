@@ -1,4 +1,4 @@
-﻿const GT_STATIC_CACHE = 'gigtune-static-v2';
+const GT_STATIC_CACHE = 'gigtune-static-v3';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting());
@@ -68,20 +68,40 @@ self.addEventListener('fetch', (event) => {
   event.respondWith((async () => {
     const cache = await caches.open(GT_STATIC_CACHE);
     const cached = await cache.match(request);
+
+    const networkPromise = fetch(request).then((response) => {
+      if (response && response.status === 200) {
+        cache.put(request, response.clone());
+      }
+      return response;
+    }).catch(() => null);
+
     if (cached) {
+      event.waitUntil(networkPromise);
       return cached;
     }
-    const response = await fetch(request);
-    if (response && response.status === 200) {
-      cache.put(request, response.clone());
+
+    const network = await networkPromise;
+    if (network) {
+      return network;
     }
-    return response;
+
+    return fetch(request);
   })());
 });
 
 self.addEventListener('message', (event) => {
   const data = event.data || {};
-  if (!data || data.type !== 'GT_SHOW_NOTIFICATION') {
+  if (!data) {
+    return;
+  }
+
+  if (data.type === 'GT_SKIP_WAITING') {
+    self.skipWaiting();
+    return;
+  }
+
+  if (data.type !== 'GT_SHOW_NOTIFICATION') {
     return;
   }
 

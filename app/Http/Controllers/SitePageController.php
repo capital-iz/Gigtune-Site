@@ -41,7 +41,7 @@ class SitePageController extends Controller
             $normalizedPath === ''
             && strtoupper((string) $request->method()) === 'GET'
             && is_array($currentUser)
-            && (bool) ($currentUser['is_admin'] ?? false)
+            && $this->isAdminLikeUser($currentUser)
         ) {
             $request->attributes->set('gigtune_user', $currentUser);
             $adminDashboard = app(AdminPortalController::class)->dashboard($request);
@@ -186,6 +186,36 @@ class SitePageController extends Controller
 
         $user = $this->users->getUserById($sessionUserId);
         return is_array($user) ? $user : null;
+    }
+
+    /** @param array<string,mixed> $user */
+    private function isAdminLikeUser(array $user): bool
+    {
+        if ((bool) ($user['is_admin'] ?? false)) {
+            return true;
+        }
+
+        $roles = array_map(
+            static fn ($role): string => strtolower(trim((string) $role)),
+            (array) ($user['roles'] ?? [])
+        );
+
+        foreach ([
+            'administrator',
+            'gigtune_admin',
+            'gigtune_administrator',
+            'gts_admin',
+            'manage_options',
+            'update_core',
+            'update_plugins',
+            'gigtune_manage_payments',
+        ] as $adminRole) {
+            if (in_array($adminRole, $roles, true)) {
+                return true;
+            }
+        }
+
+        return false;
     }
 
     private function logoutSession(Request $request): void

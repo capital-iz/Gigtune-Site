@@ -415,7 +415,7 @@
                                     if ($methodNormalized === '') {
                                         $method = 'N/A';
                                     } elseif (str_contains($methodNormalized, 'yoco') || str_contains($methodNormalized, 'card')) {
-                                        $method = 'Card Payment (YOCO)';
+                                        $method = 'Card Payment (yoco)';
                                     } elseif (str_contains($methodNormalized, 'manual')) {
                                         $method = 'Manual';
                                     } else {
@@ -424,11 +424,12 @@
                                     $reference = (string) ($row['meta']['gigtune_payment_reference_human'] ?? '');
                                     $reportedRaw = (int) ($row['meta']['gigtune_payment_reported_at'] ?? 0);
                                     $reported = $reportedRaw > 0 ? date('Y-m-d H:i:s', $reportedRaw) : 'N/A';
+                                    $bookingStatus = $sentenceCase($row['meta']['gigtune_booking_status'] ?? '-');
                                 @endphp
                                 <div class="rounded-xl border border-white/10 bg-black/20 p-4">
                                     <div class="flex flex-wrap items-center justify-between gap-3">
                                         <div class="text-sm text-slate-200">
-                                            <div class="font-semibold text-white">Booking #{{ $row['id'] }}</div>
+                                            <div class="font-semibold text-white">Booking #{{ $row['id'] }} - {{ $bookingStatus }}</div>
                                             <div class="mt-1 text-xs text-slate-300">Method: {{ $method }} | Status: {{ $sentenceCase($status) }}</div>
                                             <div class="mt-1 text-xs text-slate-300">Reference: <span class="font-mono">{{ $reference !== '' ? $reference : '-' }}</span> | Reported: {{ $reported }}</div>
                                         </div>
@@ -467,9 +468,12 @@
                     @else
                         <div class="mt-4 space-y-3">
                             @foreach (($tabData['pending_items'] ?? []) as $row)
+                                @php
+                                    $bookingStatus = $sentenceCase($row['meta']['gigtune_booking_status'] ?? '-');
+                                @endphp
                                 <div class="rounded-xl border border-white/10 bg-black/20 p-4">
                                     <div class="text-sm text-slate-200">
-                                        <div class="font-semibold text-white">Booking #{{ $row['id'] }}</div>
+                                        <div class="font-semibold text-white">Booking #{{ $row['id'] }} - {{ $bookingStatus }}</div>
                                         <div class="mt-1 text-xs text-slate-300">Payout: {{ $sentenceCase($row['meta']['gigtune_payout_status'] ?? '-') }} | Payment: {{ $sentenceCase($row['meta']['gigtune_payment_status'] ?? '-') }}</div>
                                     </div>
                                     <form method="post" action="/admin-dashboard/payouts/review" class="mt-3 space-y-2">
@@ -583,10 +587,11 @@
                                         $checkoutId = (string) ($row['meta']['gigtune_yoco_checkout_id'] ?? '');
                                     }
                                     $requestedAt = (int) ($row['meta']['gigtune_refund_requested_at'] ?? 0);
+                                    $bookingStatus = $sentenceCase($row['meta']['gigtune_booking_status'] ?? '-');
                                 @endphp
                                 <div class="rounded-xl border border-white/10 bg-black/20 p-4">
                                     <div class="text-sm text-slate-200">
-                                        <div class="font-semibold text-white">Booking #{{ $row['id'] }}</div>
+                                        <div class="font-semibold text-white">Booking #{{ $row['id'] }} - {{ $bookingStatus }}</div>
                                         <div class="mt-1 text-xs text-slate-300">Payment: {{ $sentenceCase($row['meta']['gigtune_payment_status'] ?? '-') }} | Refund: {{ $sentenceCase($row['meta']['gigtune_refund_status'] ?? '-') }}</div>
                                         <div class="mt-1 text-xs text-slate-300">Requested by: {{ $row['meta']['gigtune_refund_requested_by'] ?? '-' }} | Requested at: {{ $requestedAt > 0 ? date('Y-m-d H:i:s', $requestedAt) : 'N/A' }}</div>
                                         <div class="mt-1 text-xs text-slate-300">Checkout ID: <span class="break-all">{{ $checkoutId !== '' ? $checkoutId : 'N/A' }}</span></div>

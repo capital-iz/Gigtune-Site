@@ -524,11 +524,16 @@ class WordPressUserService
 
     private function isAdminUser(array $roles): bool
     {
-        if (in_array('administrator', $roles, true)) {
-            return true;
-        }
-
-        foreach (['manage_options', 'update_core', 'update_plugins', 'gigtune_manage_payments'] as $capability) {
+        foreach ([
+            'administrator',
+            'gigtune_admin',
+            'gigtune_administrator',
+            'gts_admin',
+            'manage_options',
+            'update_core',
+            'update_plugins',
+            'gigtune_manage_payments',
+        ] as $capability) {
             if (in_array($capability, $roles, true)) {
                 return true;
             }

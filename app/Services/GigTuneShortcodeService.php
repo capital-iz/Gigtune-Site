@@ -1163,13 +1163,18 @@ class GigTuneShortcodeService
                         ->from($this->pm() . ' as pm')
                         ->whereColumn('pm.post_id', 'p.ID')
                         ->where('pm.meta_key', 'gigtune_booking_status')
-                        ->whereRaw('UPPER(pm.meta_value) = ?', ['COMPLETED_CONFIRMED']);
+                        ->whereIn('pm.meta_value', ['COMPLETED_BY_ARTIST', 'COMPLETED_CONFIRMED']);
                 })
                 ->count('p.ID');
         }
 
         $primarySecondary = $company !== '' ? $company : $organisation;
-        if (mb_strtolower($primarySecondary) === mb_strtolower($profileName)) {
+        $normalizeCompare = static function (string $value): string {
+            $value = strtolower(trim($value));
+            $value = preg_replace('/[^a-z0-9]+/', '', $value) ?? $value;
+            return $value;
+        };
+        if ($normalizeCompare($primarySecondary) !== '' && $normalizeCompare($primarySecondary) === $normalizeCompare($profileName)) {
             $primarySecondary = '';
         }
         $aboutContent = trim((string) ($post->post_content ?? ''));
@@ -1218,7 +1223,6 @@ class GigTuneShortcodeService
         }
         $html .= '<div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3 text-sm">';
         $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-3"><div class="text-slate-400 text-xs">Completed bookings</div><div class="mt-1 font-semibold text-white">' . e((string) $completedBookings) . '</div></div>';
-        $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-3"><div class="text-slate-400 text-xs">Client rating</div><div class="mt-1 font-semibold text-white">' . e($ratingDisplay) . ' <span class="font-normal text-slate-400">(' . e($ratingCountDisplay) . ')</span></div></div>';
         if ($company !== '' && mb_strtolower($company) !== mb_strtolower($profileName)) {
             $html .= '<div class="rounded-xl border border-white/10 bg-black/20 p-3"><div class="text-slate-400 text-xs">Company</div><div class="mt-1 font-semibold text-white">' . e($company) . '</div></div>';
         }
@@ -5820,7 +5824,7 @@ HTML;
             return '';
         }
         if (str_contains($normalized, 'yoco') || str_contains($normalized, 'card')) {
-            return 'Card Payment (YOCO)';
+            return 'Card Payment (yoco)';
         }
         if (str_contains($normalized, 'manual')) {
             return 'Manual';

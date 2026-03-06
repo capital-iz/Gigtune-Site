@@ -35,8 +35,8 @@ $signin_url = home_url('/sign-in/');
 $join_url   = home_url('/join/');
 $logout_url = wp_logout_url(home_url('/'));
 
-// Logo (place your file here): /assets/img/gigtune-logo-bp.png
-$logo_url = trailingslashit(get_stylesheet_directory_uri()) . 'assets/img/gigtune-logo-bp.png';
+// Header icon.
+$logo_url = trailingslashit(get_stylesheet_directory_uri()) . 'assets/img/gigtune-icon-bg.png';
 ?>
 <nav class="sticky top-0 z-50 bg-slate-900/90 backdrop-blur-md border-b border-slate-800">
   <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">

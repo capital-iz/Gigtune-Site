@@ -68,7 +68,7 @@ function gigtune_canon_output_pwa_meta() {
     }
 
     $manifest_url = home_url('/manifest.webmanifest');
-    $icon_url = trailingslashit(get_template_directory_uri()) . 'assets/img/gigtune-logo-bp.png';
+    $icon_url = trailingslashit(get_template_directory_uri()) . 'assets/img/gigtune-app-icon-192.png';
     ?>
     <link rel="manifest" href="<?php echo esc_url($manifest_url); ?>">
     <meta name="theme-color" content="#0f172a">

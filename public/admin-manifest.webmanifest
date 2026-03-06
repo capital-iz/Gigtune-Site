@@ -1,0 +1,25 @@
+﻿{
+  "id": "/admin-app",
+  "name": "GigTune Admin",
+  "short_name": "GT Admin",
+  "start_url": "/admin-dashboard/",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#020617",
+  "theme_color": "#0f172a",
+  "description": "GigTune administrator portal",
+  "icons": [
+    {
+      "src": "/wp-content/themes/gigtune-canon/assets/img/gigtune-icon-bg.png",
+      "sizes": "420x420",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/wp-content/themes/gigtune-canon/assets/img/gigtune-app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    }
+  ]
+}

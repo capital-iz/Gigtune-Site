@@ -1,4 +1,4 @@
-﻿const GT_STATIC_CACHE = 'gigtune-static-v1';
+﻿const GT_STATIC_CACHE = 'gigtune-static-v2';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting());
@@ -76,5 +76,77 @@ self.addEventListener('fetch', (event) => {
       cache.put(request, response.clone());
     }
     return response;
+  })());
+});
+
+self.addEventListener('message', (event) => {
+  const data = event.data || {};
+  if (!data || data.type !== 'GT_SHOW_NOTIFICATION') {
+    return;
+  }
+
+  const title = String(data.title || 'GigTune');
+  const options = {
+    body: String(data.body || ''),
+    tag: String(data.tag || 'gigtune-live'),
+    icon: String(data.icon || '/wp-content/themes/gigtune-canon/assets/img/gigtune-app-icon-192.png'),
+    badge: String(data.badge || '/wp-content/themes/gigtune-canon/assets/img/gigtune-app-icon-192.png'),
+    data: {
+      url: String(data.url || '/notifications/')
+    }
+  };
+
+  const show = self.registration.showNotification(title, options);
+  if (typeof event.waitUntil === 'function') {
+    event.waitUntil(show);
+  }
+});
+
+self.addEventListener('push', (event) => {
+  let payload = {};
+  try {
+    payload = event.data ? event.data.json() : {};
+  } catch (error) {
+    payload = {
+      title: 'GigTune',
+      body: event.data ? String(event.data.text()) : 'You have a new notification.',
+      url: '/notifications/'
+    };
+  }
+
+  const title = String(payload.title || 'GigTune');
+  const options = {
+    body: String(payload.body || 'You have a new notification.'),
+    tag: String(payload.tag || 'gigtune-push'),
+    icon: String(payload.icon || '/wp-content/themes/gigtune-canon/assets/img/gigtune-app-icon-192.png'),
+    badge: String(payload.badge || '/wp-content/themes/gigtune-canon/assets/img/gigtune-app-icon-192.png'),
+    data: {
+      url: String(payload.url || '/notifications/')
+    }
+  };
+
+  event.waitUntil(self.registration.showNotification(title, options));
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  const targetUrl = (event.notification && event.notification.data && event.notification.data.url)
+    ? event.notification.data.url
+    : '/notifications/';
+
+  event.waitUntil((async () => {
+    const clients = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+    for (const client of clients) {
+      if (client.url && client.url.indexOf(self.location.origin) === 0) {
+        try {
+          await client.focus();
+          await client.navigate(targetUrl);
+          return;
+        } catch (error) {
+          // Continue to open a new window if focus/navigation fails.
+        }
+      }
+    }
+    await self.clients.openWindow(targetUrl);
   })());
 });

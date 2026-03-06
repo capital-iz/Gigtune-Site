@@ -5,7 +5,7 @@
     <div class="col-span-1 sm:col-span-2 md:col-span-1">
       <div class="flex items-center gap-3 mb-4">
         <img
-          src="<?php echo esc_url(get_template_directory_uri() . '/assets/img/gigtune-logo-bp.png'); ?>"
+          src="<?php echo esc_url(get_template_directory_uri() . '/assets/img/gigtune-logo-bg-2.png'); ?>"
           alt="GigTune"
           class="object-contain rounded-md w-12 h-12"
           onerror="this.onerror=null;this.src='https://placehold.co/40x40/2563eb/ffffff?text=GT';"

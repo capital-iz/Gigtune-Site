@@ -3438,8 +3438,15 @@ class GigTuneShortcodeService
             'only_unread' => '1',
             'include_archived' => '0',
         ])['total'] ?? 0);
-        $label = $count > 0 ? ('Notifications (' . $count . ')') : 'Notifications';
-        return '<span class="text-sm text-slate-200 hover:text-white">' . e($label) . '</span>';
+        $badge = $count > 0 ? (string) $count : '';
+        $badgeClass = $count > 0
+            ? 'inline-flex min-w-[1.2rem] items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] font-semibold text-white'
+            : 'inline-flex min-w-[1.2rem] items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] font-semibold text-white hidden';
+
+        return '<span class="inline-flex items-center gap-2">'
+            . '<span class="text-sm text-slate-200 hover:text-white gt-live-notification-label">Notifications</span>'
+            . '<span class="gt-live-notification-count ' . e($badgeClass) . '" data-hide-zero="1">' . e($badge) . '</span>'
+            . '</span>';
     }
     private function notificationSettings(array $a, ?array $u, array $ctx = []): string
     {

@@ -96,6 +96,28 @@
 })();
 </script>
 
+<?php
+$gtLiveUser = wp_get_current_user();
+$gtLiveUserId = (int) ($gtLiveUser->ID ?? 0);
+$gtLiveRoles = is_array($gtLiveUser->roles ?? null) ? $gtLiveUser->roles : [];
+$gtLiveIsAdmin = in_array('administrator', $gtLiveRoles, true);
+?>
+<script>
+window.GigTuneLiveConfig = Object.assign({}, window.GigTuneLiveConfig || {}, {
+  appId: 'gigtune-main',
+  appName: 'GigTune',
+  installEnabled: true,
+  installPromptLabel: 'Install GigTune App',
+  alertsToggleLabel: 'Enable Instant Alerts',
+  notificationsEnabled: <?php echo $gtLiveUserId > 0 ? 'true' : 'false'; ?>,
+  userId: <?php echo (int) $gtLiveUserId; ?>,
+  isAdmin: <?php echo $gtLiveIsAdmin ? 'true' : 'false'; ?>,
+  pollEndpoint: '/wp-json/gigtune/v1/notifications?per_page=12&page=1&only_unread=1&include_archived=0',
+  pollIntervalMs: 20000
+});
+</script>
+<script src="/wp-content/themes/gigtune-canon/assets/js/gigtune-live.js?v=20260306"></script>
+
 <?php wp_footer(); ?>
 </body>
 </html>

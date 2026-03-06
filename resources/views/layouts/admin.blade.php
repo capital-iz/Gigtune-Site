@@ -3,7 +3,11 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#0f172a">
     <title>{{ $title ?? 'GigTune Admin' }}</title>
+    <link rel="icon" type="image/png" sizes="420x420" href="/wp-content/themes/gigtune-canon/assets/img/gigtune-icon-bg.png">
+    <link rel="manifest" href="/admin-manifest.webmanifest">
+    <link rel="apple-touch-icon" href="/wp-content/themes/gigtune-canon/assets/img/gigtune-app-icon-192.png">
     <link rel="stylesheet" href="/wp-content/themes/gigtune-canon/assets/css/tailwind.css">
     <link rel="stylesheet" href="/wp-content/themes/gigtune-canon/style.css">
     <style>
@@ -19,6 +23,10 @@
             <div class="flex items-center gap-3">
                 <a href="/admin-dashboard" class="text-lg font-semibold text-white">GigTune Admin</a>
                 <a href="/gts-admin-users" class="rounded-md border border-white/10 bg-white/10 px-2.5 py-1 text-xs text-slate-100 hover:bg-white/15">Administrator</a>
+                <a href="/admin-dashboard" class="rounded-md border border-white/10 bg-white/10 px-2.5 py-1 text-xs text-slate-100 hover:bg-white/15 inline-flex items-center gap-2">
+                    Notifications
+                    <span class="gt-live-notification-count inline-flex min-w-[1.2rem] items-center justify-center rounded-full bg-rose-500 px-1.5 py-0.5 text-[11px] font-semibold text-white hidden" data-hide-zero="1"></span>
+                </a>
             </div>
             <div class="flex items-center gap-3 text-sm">
                 @if(isset($currentUser) && is_array($currentUser))
@@ -47,5 +55,32 @@
         @endif
         @yield('content')
     </main>
+    @php
+        $liveUser = is_array($currentUser ?? null) ? $currentUser : null;
+        $liveUserId = (int) ($liveUser['id'] ?? 0);
+    @endphp
+    <script>
+        (function () {
+            if (!('serviceWorker' in navigator)) return;
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('/service-worker.js', { scope: '/' }).catch(function () { return null; });
+            });
+        })();
+    </script>
+    <script>
+        window.GigTuneLiveConfig = Object.assign({}, window.GigTuneLiveConfig || {}, {
+            appId: 'gigtune-admin',
+            appName: 'GigTune Admin',
+            installEnabled: true,
+            installPromptLabel: 'Install GigTune Admin App',
+            alertsToggleLabel: 'Enable Admin Alerts',
+            notificationsEnabled: {{ $liveUserId > 0 ? 'true' : 'false' }},
+            userId: {{ $liveUserId }},
+            isAdmin: true,
+            pollEndpoint: '/wp-json/gigtune/v1/notifications?per_page=12&page=1&only_unread=1&include_archived=0',
+            pollIntervalMs: 20000
+        });
+    </script>
+    <script src="/wp-content/themes/gigtune-canon/assets/js/gigtune-live.js?v=20260306"></script>
 </body>
 </html>

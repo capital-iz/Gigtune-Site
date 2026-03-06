@@ -85,6 +85,7 @@ Route::prefix('admin')->group(function (): void {
     Route::middleware(['gigtune.auth', 'gigtune.admin'])->group(function (): void {
         Route::get('/maintenance', [AdminPortalController::class, 'maintenance']);
         Route::post('/maintenance/factory-reset', [AdminPortalController::class, 'factoryReset']);
+        Route::post('/maintenance/reset-display-data', [AdminPortalController::class, 'resetDisplayData']);
     });
 });
 
@@ -134,7 +135,7 @@ Route::match(['GET', 'POST'], '/admin-ajax.php', [LegacyWordPressPathController:
     ->withoutMiddleware([ValidateCsrfToken::class]);
 Route::match(['GET', 'POST'], '/wp-admin/admin-ajax.php', [LegacyWordPressPathController::class, 'adminAjax'])
     ->withoutMiddleware([ValidateCsrfToken::class]);
-Route::get('/favicon.ico', fn () => redirect('/wp-content/themes/gigtune-canon/assets/img/gigtune-logo-bp.png', 302));
+Route::get('/favicon.ico', fn () => redirect('/wp-content/themes/gigtune-canon/assets/img/gigtune-icon-bg.png', 302));
 
 Route::get('/', [SitePageController::class, 'home']);
 Route::any('/{path?}', [SitePageController::class, 'page'])

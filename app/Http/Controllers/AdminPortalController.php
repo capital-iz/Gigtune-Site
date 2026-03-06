@@ -13,6 +13,26 @@ use Illuminate\View\View;
 
 class AdminPortalController extends Controller
 {
+    private const DISPLAY_RESET_OPTIONS = [
+        'payments' => 'gigtune_admin_display_reset_payments_at',
+        'payouts' => 'gigtune_admin_display_reset_payouts_at',
+        'bookings' => 'gigtune_admin_display_reset_bookings_at',
+        'disputes' => 'gigtune_admin_display_reset_disputes_at',
+        'refunds' => 'gigtune_admin_display_reset_refunds_at',
+        'kyc' => 'gigtune_admin_display_reset_kyc_at',
+        'reports' => 'gigtune_admin_display_reset_reports_at',
+    ];
+
+    private const DISPLAY_RESET_LABELS = [
+        'payments' => 'Payments',
+        'payouts' => 'Payouts',
+        'bookings' => 'Bookings',
+        'disputes' => 'Disputes',
+        'refunds' => 'Refunds',
+        'kyc' => 'KYC',
+        'reports' => 'Reports',
+    ];
+
     public function __construct(
         private readonly WordPressUserService $users,
         private readonly GigTuneMailService $mail,
@@ -193,7 +213,9 @@ class AdminPortalController extends Controller
 
     public function maintenance(): View
     {
-        return view('admin.maintenance');
+        return view('admin.maintenance', [
+            'displayResetItems' => $this->displayResetItems(),
+        ]);
     }
 
     public function toggleSiteMaintenance(Request $request): RedirectResponse
@@ -244,6 +266,50 @@ class AdminPortalController extends Controller
             ', postmeta_deleted=' . $stats['postmeta_deleted'] .
             ', options_deleted=' . $stats['options_deleted'] .
             ', usermeta_deleted=' . $stats['usermeta_deleted']
+        );
+    }
+
+    public function resetDisplayData(Request $request): RedirectResponse
+    {
+        $payload = $request->validate([
+            'targets' => ['required', 'array', 'min:1'],
+            'targets.*' => ['required', 'string'],
+            'password' => ['required', 'string', 'min:1'],
+        ]);
+
+        $targets = $this->normalizeDisplayResetTargets((array) ($payload['targets'] ?? []));
+        if ($targets === []) {
+            return back()->withErrors(['display_reset' => 'Select at least one display section to reset.']);
+        }
+
+        $user = $request->attributes->get('gigtune_user');
+        if (!is_array($user)) {
+            return back()->withErrors(['display_reset' => 'Authentication required.']);
+        }
+
+        $verified = $this->users->verifyCredentials((string) ($user['login'] ?? ''), (string) $payload['password']);
+        if (!is_array($verified) || (int) ($verified['id'] ?? 0) !== (int) ($user['id'] ?? 0)) {
+            return back()->withErrors(['display_reset' => 'Admin password verification failed.']);
+        }
+
+        $resetAt = (string) now()->timestamp;
+        $labels = [];
+        foreach ($targets as $target) {
+            $option = self::DISPLAY_RESET_OPTIONS[$target] ?? null;
+            if (!is_string($option) || trim($option) === '') {
+                continue;
+            }
+            $this->setOptionValue($option, $resetAt);
+            $labels[] = self::DISPLAY_RESET_LABELS[$target] ?? ucfirst($target);
+        }
+
+        if ($labels === []) {
+            return back()->withErrors(['display_reset' => 'No valid display sections were selected.']);
+        }
+
+        return redirect('/admin/maintenance')->with(
+            'status',
+            'Display data reset applied for: ' . implode(', ', $labels) . '. Existing records remain in the database.'
         );
     }
 
@@ -1739,7 +1805,7 @@ class AdminPortalController extends Controller
                         'gigtune_payout_status',
                     ],
                     100,
-                    function ($query) use ($request): void {
+                    $this->withDisplayResetScope('payments', function ($query) use ($request): void {
                         $payment = trim((string) $request->query('payment', ''));
                         if ($payment !== '') {
                             $query->whereExists(function ($sub) use ($payment): void {
@@ -1780,7 +1846,7 @@ class AdminPortalController extends Controller
                                 });
                             });
                         });
-                    }
+                    })
                 ),
             ],
             'payouts' => [
@@ -1798,7 +1864,7 @@ class AdminPortalController extends Controller
                         'gigtune_payment_status',
                     ],
                     100,
-                    function ($query) use ($request): void {
+                    $this->withDisplayResetScope('payouts', function ($query) use ($request): void {
                         $payout = trim((string) $request->query('payout', ''));
                         if ($payout !== '') {
                             $query->whereExists(function ($sub) use ($payout): void {
@@ -1817,7 +1883,7 @@ class AdminPortalController extends Controller
                                 ->where('pm.meta_key', 'gigtune_payout_status')
                                 ->where('pm.meta_value', 'PENDING_MANUAL');
                         });
-                    }
+                    })
                 ),
                 'needs_review_items' => $this->loadPostTypeRows(
                     'gigtune_booking',
@@ -1828,7 +1894,7 @@ class AdminPortalController extends Controller
                         'gigtune_booking_status',
                     ],
                     40,
-                    function ($query): void {
+                    $this->withDisplayResetScope('payouts', function ($query): void {
                         $query->where(function ($sub): void {
                             $sub->whereExists(function ($q): void {
                                 $q->selectRaw('1')
@@ -1857,7 +1923,7 @@ class AdminPortalController extends Controller
                                 });
                             });
                         });
-                    }
+                    })
                 ),
             ],
             'bookings' => [
@@ -1877,7 +1943,7 @@ class AdminPortalController extends Controller
                         'gigtune_yoco_checkout_id',
                     ],
                     100,
-                    function ($query) use ($request): void {
+                    $this->withDisplayResetScope('bookings', function ($query) use ($request): void {
                         $status = trim((string) $request->query('status', ''));
                         if ($status === '') {
                             return;
@@ -1889,7 +1955,7 @@ class AdminPortalController extends Controller
                                 ->where('pm.meta_key', 'gigtune_booking_status')
                                 ->whereRaw('LOWER(pm.meta_value) = ?', [strtolower($status)]);
                         });
-                    }
+                    })
                 ),
             ],
             'disputes' => [
@@ -1906,7 +1972,7 @@ class AdminPortalController extends Controller
                         'gigtune_dispute_resolved_at',
                     ],
                     100,
-                    function ($query) use ($request): void {
+                    $this->withDisplayResetScope('disputes', function ($query) use ($request): void {
                         $status = trim((string) $request->query('status', ''));
                         if ($status === '') {
                             return;
@@ -1918,7 +1984,7 @@ class AdminPortalController extends Controller
                                 ->where('pm.meta_key', 'gigtune_dispute_status')
                                 ->whereRaw('LOWER(pm.meta_value) = ?', [strtolower($status)]);
                         });
-                    }
+                    })
                 ),
             ],
             'refunds' => [
@@ -1938,7 +2004,7 @@ class AdminPortalController extends Controller
                         'gigtune_booking_locked',
                     ],
                     100,
-                    function ($query): void {
+                    $this->withDisplayResetScope('refunds', function ($query): void {
                         $query->where(function ($sub): void {
                             $sub->whereExists(function ($q): void {
                                 $q->selectRaw('1')
@@ -1954,7 +2020,7 @@ class AdminPortalController extends Controller
                                     ->where('pm.meta_value', 'refund_pending');
                             });
                         });
-                    }
+                    })
                 ),
             ],
             'kyc' => [
@@ -1974,7 +2040,7 @@ class AdminPortalController extends Controller
                         'gigtune_kyc_documents',
                     ],
                     200,
-                    function ($query) use ($request): void {
+                    $this->withDisplayResetScope('kyc', function ($query) use ($request): void {
                         $status = trim((string) $request->query('status', ''));
                         if ($status === '') {
                             return;
@@ -1986,15 +2052,82 @@ class AdminPortalController extends Controller
                                 ->where('pm.meta_key', 'gigtune_kyc_decision')
                                 ->whereRaw('LOWER(pm.meta_value) = ?', [strtolower($status)]);
                         });
-                    }
+                    })
                 )),
             ],
             'reports' => [
-                'window_7' => $this->buildReportWindow(7),
-                'window_30' => $this->buildReportWindow(30),
+                'window_7' => $this->buildReportWindow(7, $this->getDisplayResetCutoffTimestamp('reports')),
+                'window_30' => $this->buildReportWindow(30, $this->getDisplayResetCutoffTimestamp('reports')),
             ],
             default => [],
         };
+    }
+
+    private function normalizeDisplayResetTargets(array $targets): array
+    {
+        $allowed = array_keys(self::DISPLAY_RESET_OPTIONS);
+        $normalized = [];
+        foreach ($targets as $target) {
+            $value = trim(strtolower((string) $target));
+            if ($value === '' || !in_array($value, $allowed, true)) {
+                continue;
+            }
+            $normalized[$value] = $value;
+        }
+
+        return array_values($normalized);
+    }
+
+    private function displayResetItems(): array
+    {
+        $items = [];
+        foreach (self::DISPLAY_RESET_OPTIONS as $key => $optionName) {
+            $timestamp = $this->getDisplayResetCutoffTimestamp($key);
+            $items[] = [
+                'key' => $key,
+                'label' => self::DISPLAY_RESET_LABELS[$key] ?? ucfirst($key),
+                'option_name' => $optionName,
+                'last_reset_at' => $timestamp > 0 ? now()->setTimestamp($timestamp)->format('Y-m-d H:i:s T') : null,
+            ];
+        }
+
+        return $items;
+    }
+
+    private function withDisplayResetScope(string $target, ?callable $scope = null): \Closure
+    {
+        return function ($query) use ($target, $scope): void {
+            $this->applyDisplayResetCutoff($query, $target);
+            if ($scope !== null) {
+                $scope($query);
+            }
+        };
+    }
+
+    private function applyDisplayResetCutoff($query, string $target): void
+    {
+        $cutoffTimestamp = $this->getDisplayResetCutoffTimestamp($target);
+        if ($cutoffTimestamp <= 0) {
+            return;
+        }
+
+        $query->where('p.post_date', '>=', now()->setTimestamp($cutoffTimestamp)->format('Y-m-d H:i:s'));
+    }
+
+    private function getDisplayResetCutoffTimestamp(string $target): int
+    {
+        $optionName = self::DISPLAY_RESET_OPTIONS[$target] ?? '';
+        if ($optionName === '') {
+            return 0;
+        }
+
+        $raw = trim($this->getOptionValue($optionName));
+        if ($raw === '' || preg_match('/^\d+$/', $raw) !== 1) {
+            return 0;
+        }
+
+        $timestamp = (int) $raw;
+        return $timestamp > 0 ? $timestamp : 0;
     }
 
     private function loadAdminDashboardComplianceTab(Request $request): array
@@ -2586,10 +2719,17 @@ class AdminPortalController extends Controller
         return $map;
     }
 
-    private function buildReportWindow(int $days): array
+    private function buildReportWindow(int $days, int $resetCutoffTimestamp = 0): array
     {
         $days = max(1, $days);
-        $since = now()->subDays($days)->format('Y-m-d H:i:s');
+        $sincePoint = now()->subDays($days);
+        if ($resetCutoffTimestamp > 0) {
+            $resetPoint = now()->setTimestamp($resetCutoffTimestamp);
+            if ($resetPoint->greaterThan($sincePoint)) {
+                $sincePoint = $resetPoint;
+            }
+        }
+        $since = $sincePoint->format('Y-m-d H:i:s');
         $db = $this->wordpressDb();
         $posts = $this->tablePrefix() . 'posts';
         $postmeta = $this->tablePrefix() . 'postmeta';
@@ -3239,6 +3379,48 @@ class AdminPortalController extends Controller
                 'usermeta_deleted' => $usermetaDeleted,
             ];
         });
+    }
+
+    private function getOptionValue(string $optionName): string
+    {
+        $optionName = trim($optionName);
+        if ($optionName === '') {
+            return '';
+        }
+
+        $value = $this->wordpressDb()
+            ->table($this->tablePrefix() . 'options')
+            ->where('option_name', $optionName)
+            ->value('option_value');
+
+        return is_string($value) ? $value : '';
+    }
+
+    private function setOptionValue(string $optionName, string $optionValue): void
+    {
+        $optionName = trim($optionName);
+        if ($optionName === '') {
+            return;
+        }
+
+        $db = $this->wordpressDb();
+        $table = $this->tablePrefix() . 'options';
+        $updated = (int) $db->table($table)
+            ->where('option_name', $optionName)
+            ->update([
+                'option_value' => $optionValue,
+                'autoload' => 'no',
+            ]);
+
+        if ($updated > 0) {
+            return;
+        }
+
+        $db->table($table)->insert([
+            'option_name' => $optionName,
+            'option_value' => $optionValue,
+            'autoload' => 'no',
+        ]);
     }
 
     private function tablePrefix(): string

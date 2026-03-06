@@ -14,8 +14,8 @@
   var pushSubscribeEndpoint = String(cfg.pushSubscribeEndpoint || '/wp-json/gigtune/v1/push/subscribe');
   var pushUnsubscribeEndpoint = String(cfg.pushUnsubscribeEndpoint || '/wp-json/gigtune/v1/push/unsubscribe');
   var pollEndpoint = String(cfg.pollEndpoint || '/wp-json/gigtune/v1/notifications?per_page=12&page=1&only_unread=1&include_archived=0');
-  var mobileBellIconIdle = String(cfg.mobileBellIconIdle || '/wp-content/themes/gigtune-canon/assets/img/notification-bell-idle.png');
-  var mobileBellIconUnread = String(cfg.mobileBellIconUnread || '/wp-content/themes/gigtune-canon/assets/img/notification-bell-unread.png');
+  var mobileBellIconIdle = String(cfg.mobileBellIconIdle || '/wp-content/themes/gigtune-canon/assets/img/notification-bell-idle-v2.png');
+  var mobileBellIconUnread = String(cfg.mobileBellIconUnread || '/wp-content/themes/gigtune-canon/assets/img/notification-bell-unread-v2.png');
   var pollIntervalMs = Number(cfg.pollIntervalMs || 20000);
   var storagePrefix = 'gigtune.live.' + appId + '.';
   var installDismissKey = storagePrefix + 'install.dismissed';

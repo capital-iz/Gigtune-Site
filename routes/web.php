@@ -107,6 +107,8 @@ Route::middleware(['gigtune.auth', 'gigtune.admin'])->group(function (): void {
     Route::post('/admin-dashboard/payments/review', [AdminPortalController::class, 'reviewPayment']);
     Route::post('/admin-dashboard/payouts/review', [AdminPortalController::class, 'reviewPayout']);
     Route::post('/admin-dashboard/bookings/request-refund', [AdminPortalController::class, 'requestBookingRefund']);
+    Route::post('/admin-dashboard/bookings/archive', [AdminPortalController::class, 'archiveBooking']);
+    Route::post('/admin-dashboard/bookings/restore', [AdminPortalController::class, 'restoreBooking']);
     Route::post('/admin-dashboard/disputes/review', [AdminPortalController::class, 'reviewDispute']);
     Route::post('/admin-dashboard/refunds/review', [AdminPortalController::class, 'reviewRefund']);
     Route::post('/admin-dashboard/kyc/review', [AdminPortalController::class, 'reviewKyc']);

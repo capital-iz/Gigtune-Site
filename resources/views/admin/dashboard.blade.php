@@ -99,6 +99,11 @@
             @if ($activeTab === 'overview')
                 <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
                     <h4 class="text-base font-semibold text-white">Overview</h4>
+                    @php
+                        $overviewActiveBookings = is_array($tabData['active_booking_items'] ?? null) ? $tabData['active_booking_items'] : [];
+                        $overviewArchivedBookings = is_array($tabData['archived_booking_items'] ?? null) ? $tabData['archived_booking_items'] : [];
+                        $overviewArchivedCount = (int) ($tabData['archived_booking_count'] ?? count($overviewArchivedBookings));
+                    @endphp
                     <div class="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
                         <div class="rounded-xl border border-white/10 bg-black/20 p-4">
                             <div class="text-xs text-slate-300">Awaiting payment confirmation</div>
@@ -147,6 +152,73 @@
                             @else
                                 <p class="mt-2 text-xs text-slate-300">No notifications yet.</p>
                             @endif
+                        </div>
+                        <div class="rounded-xl border border-white/10 bg-black/20 p-4 md:col-span-2">
+                            <div class="flex items-center justify-between gap-2">
+                                <div class="text-sm font-semibold text-white">Recent bookings</div>
+                                <a href="/admin-dashboard/bookings" class="text-xs text-blue-300 hover:text-blue-200">Open Bookings</a>
+                            </div>
+                            @if (empty($overviewActiveBookings))
+                                <p class="mt-3 text-sm text-slate-300">No active bookings found.</p>
+                            @else
+                                <div class="mt-3 space-y-2">
+                                    @foreach ($overviewActiveBookings as $row)
+                                        @php
+                                            $bookingStatus = $sentenceCase($row['meta']['gigtune_booking_status'] ?? '-');
+                                        @endphp
+                                        <article class="rounded-lg border border-white/10 bg-slate-950/40 p-3">
+                                            <div class="flex flex-wrap items-start justify-between gap-2">
+                                                <div class="text-sm text-slate-200">
+                                                    <div class="font-semibold text-white">Booking #{{ $row['id'] }} - {{ $bookingStatus }}</div>
+                                                    <div class="mt-1 text-xs text-slate-300">Payment: {{ $sentenceCase($row['meta']['gigtune_payment_status'] ?? '-') }} | Payout: {{ $sentenceCase($row['meta']['gigtune_payout_status'] ?? '-') }}</div>
+                                                </div>
+                                                <div class="flex flex-wrap gap-2">
+                                                    <a class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15" href="/messages/?booking_id={{ $row['id'] }}">View Booking</a>
+                                                    @if (!empty($row['can_archive']))
+                                                        <form method="post" action="/admin-dashboard/bookings/archive">
+                                                            @csrf
+                                                            <input type="hidden" name="booking_id" value="{{ $row['id'] }}">
+                                                            <input type="hidden" name="return_tab" value="overview">
+                                                            <button type="submit" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15">Archive</button>
+                                                        </form>
+                                                    @endif
+                                                </div>
+                                            </div>
+                                        </article>
+                                    @endforeach
+                                </div>
+                            @endif
+                            <details class="mt-3 rounded-lg border border-white/10 bg-slate-950/40 p-3" @if ($overviewArchivedCount > 0) open @endif>
+                                <summary class="cursor-pointer select-none text-xs font-semibold text-white">Archived bookings ({{ $overviewArchivedCount }})</summary>
+                                @if (empty($overviewArchivedBookings))
+                                    <p class="mt-2 text-xs text-slate-300">No archived bookings.</p>
+                                @else
+                                    <div class="mt-2 space-y-2">
+                                        @foreach ($overviewArchivedBookings as $row)
+                                            @php
+                                                $bookingStatus = $sentenceCase($row['meta']['gigtune_booking_status'] ?? '-');
+                                            @endphp
+                                            <article class="rounded-lg border border-white/10 bg-black/20 p-3">
+                                                <div class="flex flex-wrap items-start justify-between gap-2">
+                                                    <div class="text-sm text-slate-200">
+                                                        <div class="font-semibold text-white">Booking #{{ $row['id'] }} - {{ $bookingStatus }} <span class="text-slate-400">Archived</span></div>
+                                                        <div class="mt-1 text-xs text-slate-300">Event: {{ $row['meta']['gigtune_booking_event_date'] ?? '-' }}</div>
+                                                    </div>
+                                                    <div class="flex flex-wrap gap-2">
+                                                        <a class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15" href="/messages/?booking_id={{ $row['id'] }}">View Booking</a>
+                                                        <form method="post" action="/admin-dashboard/bookings/restore">
+                                                            @csrf
+                                                            <input type="hidden" name="booking_id" value="{{ $row['id'] }}">
+                                                            <input type="hidden" name="return_tab" value="overview">
+                                                            <button type="submit" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15">Restore</button>
+                                                        </form>
+                                                    </div>
+                                                </div>
+                                            </article>
+                                        @endforeach
+                                    </div>
+                                @endif
+                            </details>
                         </div>
                         <div class="rounded-xl border border-white/10 bg-black/20 p-4">
                             <div class="text-sm font-semibold text-white">Users</div>
@@ -512,11 +584,16 @@
             @if ($activeTab === 'bookings')
                 <div class="rounded-2xl border border-white/10 bg-white/5 p-6">
                     <h4 class="text-base font-semibold text-white">Bookings</h4>
-                    @if (empty($tabData['items']))
-                        <p class="mt-3 text-sm text-slate-300">No bookings found.</p>
+                    @php
+                        $activeBookingItems = is_array($tabData['active_items'] ?? null) ? $tabData['active_items'] : [];
+                        $archivedBookingItems = is_array($tabData['archived_items'] ?? null) ? $tabData['archived_items'] : [];
+                        $archivedBookingCount = (int) ($tabData['archived_count'] ?? count($archivedBookingItems));
+                    @endphp
+                    @if (empty($activeBookingItems))
+                        <p class="mt-3 text-sm text-slate-300">No active bookings found.</p>
                     @else
                         <div class="mt-4 space-y-3">
-                            @foreach (($tabData['items'] ?? []) as $row)
+                            @foreach ($activeBookingItems as $row)
                                 @php
                                     $bookingStatus = $sentenceCase($row['meta']['gigtune_booking_status'] ?? '-');
                                 @endphp
@@ -532,10 +609,51 @@
                                         <input type="text" name="note" value="" placeholder="Refund note (optional)" class="w-full rounded-lg bg-slate-950/50 border border-white/10 px-3 py-2 text-white text-sm">
                                         <button type="submit" class="inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-semibold text-white bg-white/10 hover:bg-white/15">Refund (YOCO)</button>
                                     </form>
+                                    @if (!empty($row['can_archive']))
+                                        <form method="post" action="/admin-dashboard/bookings/archive" class="mt-2">
+                                            @csrf
+                                            <input type="hidden" name="booking_id" value="{{ $row['id'] }}">
+                                            <input type="hidden" name="return_tab" value="bookings">
+                                            <button type="submit" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15">Archive</button>
+                                        </form>
+                                    @endif
                                 </div>
                             @endforeach
                         </div>
                     @endif
+
+                    <details class="mt-4 rounded-xl border border-white/10 bg-black/20 p-4" @if ($archivedBookingCount > 0) open @endif>
+                        <summary class="cursor-pointer select-none text-sm font-semibold text-white">Archived bookings ({{ $archivedBookingCount }})</summary>
+                        @if (empty($archivedBookingItems))
+                            <p class="mt-3 text-sm text-slate-300">No archived bookings.</p>
+                        @else
+                            <div class="mt-3 space-y-3">
+                                @foreach ($archivedBookingItems as $row)
+                                    @php
+                                        $bookingStatus = $sentenceCase($row['meta']['gigtune_booking_status'] ?? '-');
+                                    @endphp
+                                    <div class="rounded-xl border border-white/10 bg-slate-950/40 p-4">
+                                        <div class="flex flex-wrap items-start justify-between gap-3">
+                                            <div class="text-sm text-slate-200">
+                                                <div class="font-semibold text-white">Booking #{{ $row['id'] }} - {{ $bookingStatus }} <span class="text-slate-400">Archived</span></div>
+                                                <div class="mt-1 text-xs text-slate-300">Payment: {{ $sentenceCase($row['meta']['gigtune_payment_status'] ?? '-') }} | Payout: {{ $sentenceCase($row['meta']['gigtune_payout_status'] ?? '-') }}</div>
+                                                <div class="mt-1 text-xs text-slate-300">Event: {{ $row['meta']['gigtune_booking_event_date'] ?? '-' }}</div>
+                                            </div>
+                                            <div class="flex flex-wrap gap-2">
+                                                <a class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15" href="/messages/?booking_id={{ $row['id'] }}">View Booking</a>
+                                                <form method="post" action="/admin-dashboard/bookings/restore">
+                                                    @csrf
+                                                    <input type="hidden" name="booking_id" value="{{ $row['id'] }}">
+                                                    <input type="hidden" name="return_tab" value="bookings">
+                                                    <button type="submit" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15">Restore</button>
+                                                </form>
+                                            </div>
+                                        </div>
+                                    </div>
+                                @endforeach
+                            </div>
+                        @endif
+                    </details>
                 </div>
             @endif
 

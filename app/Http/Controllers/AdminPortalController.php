@@ -15,6 +15,7 @@ use Illuminate\View\View;
 class AdminPortalController extends Controller
 {
     private const DISPLAY_RESET_OPTIONS = [
+        'overview' => 'gigtune_admin_display_reset_overview_at',
         'payments' => 'gigtune_admin_display_reset_payments_at',
         'payouts' => 'gigtune_admin_display_reset_payouts_at',
         'bookings' => 'gigtune_admin_display_reset_bookings_at',
@@ -25,6 +26,7 @@ class AdminPortalController extends Controller
     ];
 
     private const DISPLAY_RESET_LABELS = [
+        'overview' => 'Overview',
         'payments' => 'Payments',
         'payouts' => 'Payouts',
         'bookings' => 'Bookings',
@@ -544,6 +546,62 @@ class AdminPortalController extends Controller
         return $this->redirectWithAdminFlash('bookings', 'refund_requested');
     }
 
+    public function archiveBooking(Request $request): RedirectResponse
+    {
+        $payload = $request->validate([
+            'booking_id' => ['required', 'integer', 'min:1'],
+            'return_tab' => ['nullable', 'string', 'in:overview,bookings'],
+        ]);
+
+        $returnTab = $this->resolveAdminBookingReturnTab($request, (string) ($payload['return_tab'] ?? ''));
+        $actorId = $this->currentAdminUserId($request);
+        if ($actorId <= 0) {
+            return $this->redirectWithAdminFlash($returnTab, '', 'insufficient_permissions');
+        }
+
+        $bookingId = (int) $payload['booking_id'];
+        if (!$this->isPostType($bookingId, 'gigtune_booking')) {
+            return $this->redirectWithAdminFlash($returnTab, '', 'invalid_booking');
+        }
+
+        $meta = $this->loadMetaMap([$bookingId], [
+            'gigtune_booking_status',
+            'gigtune_booking_event_date',
+            'gigtune_payment_status',
+            'gigtune_payout_status',
+            'gigtune_refund_status',
+        ])[$bookingId] ?? [];
+
+        if (!$this->bookingCanBeArchived($meta)) {
+            return $this->redirectWithAdminFlash($returnTab, '', 'booking_archive_not_allowed');
+        }
+
+        $this->upsertPostMeta($bookingId, $this->adminBookingArchiveMetaKey(), '1');
+        return $this->redirectWithAdminFlash($returnTab, 'booking_archived');
+    }
+
+    public function restoreBooking(Request $request): RedirectResponse
+    {
+        $payload = $request->validate([
+            'booking_id' => ['required', 'integer', 'min:1'],
+            'return_tab' => ['nullable', 'string', 'in:overview,bookings'],
+        ]);
+
+        $returnTab = $this->resolveAdminBookingReturnTab($request, (string) ($payload['return_tab'] ?? ''));
+        $actorId = $this->currentAdminUserId($request);
+        if ($actorId <= 0) {
+            return $this->redirectWithAdminFlash($returnTab, '', 'insufficient_permissions');
+        }
+
+        $bookingId = (int) $payload['booking_id'];
+        if (!$this->isPostType($bookingId, 'gigtune_booking')) {
+            return $this->redirectWithAdminFlash($returnTab, '', 'invalid_booking');
+        }
+
+        $this->upsertPostMeta($bookingId, $this->adminBookingArchiveMetaKey(), '0');
+        return $this->redirectWithAdminFlash($returnTab, 'booking_restored');
+    }
+
     public function reviewDispute(Request $request): RedirectResponse
     {
         $payload = $request->validate([
@@ -732,6 +790,22 @@ class AdminPortalController extends Controller
     {
         $actor = $request->attributes->get('gigtune_user');
         return (int) (is_array($actor) ? ($actor['id'] ?? 0) : 0);
+    }
+
+    private function resolveAdminBookingReturnTab(Request $request, string $explicit = ''): string
+    {
+        $candidate = trim(strtolower($explicit));
+        if ($candidate === '') {
+            $candidate = trim(strtolower((string) $request->input('return_tab', '')));
+        }
+        if ($candidate === '') {
+            $candidate = trim(strtolower((string) $request->query('return_tab', '')));
+        }
+        if (!in_array($candidate, ['overview', 'bookings'], true)) {
+            $candidate = 'bookings';
+        }
+
+        return $candidate;
     }
 
     private function redirectWithAdminFlash(string $tab, string $action = '', string $error = '', string $blockers = ''): RedirectResponse
@@ -1825,6 +1899,7 @@ class AdminPortalController extends Controller
     private function loadDashboardTabData(string $tab, Request $request): array
     {
         return match ($tab) {
+            'overview' => $this->loadAdminDashboardOverviewTab($request),
             'users' => $this->loadAdminDashboardUsersTab($request),
             'compliance' => $this->loadAdminDashboardComplianceTab($request),
             'payments' => [
@@ -1961,38 +2036,7 @@ class AdminPortalController extends Controller
                     })
                 ),
             ],
-            'bookings' => [
-                'items' => $this->loadPostTypeRows(
-                    'gigtune_booking',
-                    [
-                        'gigtune_booking_status',
-                        'gigtune_booking_client_user_id',
-                        'gigtune_booking_artist_profile_id',
-                        'gigtune_booking_budget',
-                        'gigtune_booking_event_date',
-                        'gigtune_payment_status',
-                        'gigtune_payout_status',
-                        'gigtune_dispute_raised',
-                        'gigtune_refund_status',
-                        'gigtune_refund_checkout_id',
-                        'gigtune_yoco_checkout_id',
-                    ],
-                    100,
-                    $this->withDisplayResetScope('bookings', function ($query) use ($request): void {
-                        $status = trim((string) $request->query('status', ''));
-                        if ($status === '') {
-                            return;
-                        }
-                        $query->whereExists(function ($sub) use ($status): void {
-                            $sub->selectRaw('1')
-                                ->from($this->tablePrefix() . 'postmeta as pm')
-                                ->whereColumn('pm.post_id', 'p.ID')
-                                ->where('pm.meta_key', 'gigtune_booking_status')
-                                ->whereRaw('LOWER(pm.meta_value) = ?', [strtolower($status)]);
-                        });
-                    })
-                ),
-            ],
+            'bookings' => $this->loadAdminDashboardBookingsTab($request),
             'disputes' => [
                 'items' => $this->loadPostTypeRows(
                     'gigtune_dispute',
@@ -2096,6 +2140,78 @@ class AdminPortalController extends Controller
             ],
             default => [],
         };
+    }
+
+    private function loadAdminDashboardOverviewTab(Request $request): array
+    {
+        $bookingList = $this->loadAdminDashboardBookingList($request, 'overview', 24);
+
+        return [
+            'active_booking_items' => array_slice($bookingList['active_items'], 0, 6),
+            'archived_booking_items' => array_slice($bookingList['archived_items'], 0, 10),
+            'archived_booking_count' => $bookingList['archived_count'],
+        ];
+    }
+
+    private function loadAdminDashboardBookingsTab(Request $request): array
+    {
+        return $this->loadAdminDashboardBookingList($request, 'bookings', 140);
+    }
+
+    private function loadAdminDashboardBookingList(Request $request, string $displayResetTarget, int $limit): array
+    {
+        $archiveMetaKey = $this->adminBookingArchiveMetaKey();
+        $rows = $this->loadPostTypeRows(
+            'gigtune_booking',
+            [
+                'gigtune_booking_status',
+                'gigtune_booking_client_user_id',
+                'gigtune_booking_artist_profile_id',
+                'gigtune_booking_budget',
+                'gigtune_booking_event_date',
+                'gigtune_payment_status',
+                'gigtune_payout_status',
+                'gigtune_dispute_raised',
+                'gigtune_refund_status',
+                'gigtune_refund_checkout_id',
+                'gigtune_yoco_checkout_id',
+                $archiveMetaKey,
+            ],
+            $limit,
+            $this->withDisplayResetScope($displayResetTarget, function ($query) use ($request): void {
+                $status = trim((string) $request->query('status', ''));
+                if ($status === '') {
+                    return;
+                }
+                $query->whereExists(function ($sub) use ($status): void {
+                    $sub->selectRaw('1')
+                        ->from($this->tablePrefix() . 'postmeta as pm')
+                        ->whereColumn('pm.post_id', 'p.ID')
+                        ->where('pm.meta_key', 'gigtune_booking_status')
+                        ->whereRaw('LOWER(pm.meta_value) = ?', [strtolower($status)]);
+                });
+            })
+        );
+
+        $activeItems = [];
+        $archivedItems = [];
+        foreach ($rows as $row) {
+            $meta = is_array($row['meta'] ?? null) ? $row['meta'] : [];
+            $isArchived = ((string) ($meta[$archiveMetaKey] ?? '0')) === '1';
+            $row['is_archived'] = $isArchived;
+            $row['can_archive'] = !$isArchived && $this->bookingCanBeArchived($meta);
+            if ($isArchived) {
+                $archivedItems[] = $row;
+            } else {
+                $activeItems[] = $row;
+            }
+        }
+
+        return [
+            'active_items' => $activeItems,
+            'archived_items' => $archivedItems,
+            'archived_count' => count($archivedItems),
+        ];
     }
 
     private function normalizeDisplayResetTargets(array $targets): array
@@ -3328,6 +3444,75 @@ class AdminPortalController extends Controller
         } catch (\Throwable) {
             // Keep notification creation non-blocking for KYC review actions.
         }
+    }
+
+    private function adminBookingArchiveMetaKey(): string
+    {
+        return 'gigtune_booking_is_archived_admin';
+    }
+
+    /** @param array<string,mixed> $bookingMeta */
+    private function bookingCanBeArchived(array $bookingMeta): bool
+    {
+        $statusRaw = strtoupper(trim((string) ($bookingMeta['gigtune_booking_status'] ?? '')));
+        $paymentRaw = strtoupper(trim((string) ($bookingMeta['gigtune_payment_status'] ?? '')));
+        $payoutRaw = strtoupper(trim((string) ($bookingMeta['gigtune_payout_status'] ?? '')));
+        $refundRaw = strtoupper(trim((string) ($bookingMeta['gigtune_refund_status'] ?? '')));
+
+        $closedStatuses = [
+            'REJECTED',
+            'PAYMENT_TIMEOUT',
+            'COMPLETED_BY_ARTIST',
+            'COMPLETED_CONFIRMED',
+            'CANCELLED_BY_CLIENT',
+            'CANCELLED_BY_ARTIST',
+            'REFUNDED',
+            'REFUNDED_FULL',
+        ];
+        if (in_array($statusRaw, $closedStatuses, true)) {
+            return true;
+        }
+        if (in_array($paymentRaw, ['FAILED', 'REFUNDED', 'REFUNDED_FULL'], true)) {
+            return true;
+        }
+        if (in_array($refundRaw, ['SUCCEEDED', 'REJECTED'], true)) {
+            return true;
+        }
+        if (in_array($payoutRaw, ['PAID', 'FAILED'], true)) {
+            return true;
+        }
+
+        $eventDate = trim((string) ($bookingMeta['gigtune_booking_event_date'] ?? ''));
+        if ($eventDate === '') {
+            return false;
+        }
+        $eventTimestamp = $this->parseBookingEventTimestamp($eventDate);
+        return $eventTimestamp > 0 && $eventTimestamp <= time();
+    }
+
+    private function parseBookingEventTimestamp(string $eventDate): int
+    {
+        $eventDate = trim($eventDate);
+        if ($eventDate === '') {
+            return 0;
+        }
+
+        $timezoneName = (string) config('app.timezone', 'Africa/Johannesburg');
+        try {
+            $timezone = new \DateTimeZone($timezoneName !== '' ? $timezoneName : 'Africa/Johannesburg');
+        } catch (\Throwable) {
+            $timezone = new \DateTimeZone('Africa/Johannesburg');
+        }
+
+        foreach (['Y-m-d\TH:i', 'Y-m-d H:i:s', 'Y-m-d H:i', 'Y-m-d'] as $format) {
+            $candidate = \DateTimeImmutable::createFromFormat($format, $eventDate, $timezone);
+            if ($candidate instanceof \DateTimeImmutable) {
+                return $candidate->getTimestamp();
+            }
+        }
+
+        $fallback = strtotime($eventDate);
+        return $fallback === false ? 0 : (int) $fallback;
     }
 
     private function toSentenceCase(string $value): string

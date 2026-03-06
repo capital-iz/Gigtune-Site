@@ -4136,6 +4136,7 @@ class GigTuneShortcodeService
         $uid = (int) ($u['id'] ?? 0);
         $heroProfileUrl = '';
         $heroBannerUrl = '';
+        $publicProfileUrl = '';
         $heroSubtitle = $artist ? 'Artist account' : 'Client account';
         $heroRatingDisplay = '0';
         if ($artist) {
@@ -4157,6 +4158,7 @@ class GigTuneShortcodeService
                 if ($baseArea !== '') {
                     $heroSubtitle = 'Base area: ' . $baseArea;
                 }
+                $publicProfileUrl = '/artist-profile/?artist_id=' . $artistProfileId;
             }
         } else {
             $clientProfileId = $this->latestUserMetaInt($uid, 'gigtune_client_profile_id');
@@ -4211,6 +4213,7 @@ class GigTuneShortcodeService
                     $heroSubtitle = 'Base area: ' . $baseArea;
                 }
             }
+            $publicProfileUrl = '/client-profile/?client_user_id=' . $uid;
         }
         $policy = $this->users->getPolicyStatus($uid);
         $userMeta = $this->userMetaLatestMap([$uid], [
@@ -4263,7 +4266,10 @@ class GigTuneShortcodeService
         $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
         $html .= '<h3 class="text-lg font-semibold text-white">' . e($title) . '</h3>';
         $html .= '<p class="mt-2 text-sm text-slate-300">Manage bookings, messages, notifications, and account compliance.</p>';
-        $html .= '<div class="mt-4 flex flex-wrap gap-3">' . $primaryCta . $secondaryCta . $tertiaryCta . '<a href="/notifications/" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white bg-white/10 hover:bg-white/15">Notifications</a></div>';
+        $profileCta = $publicProfileUrl !== ''
+            ? '<a href="' . e($publicProfileUrl) . '" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white bg-white/10 hover:bg-white/15">View Public Profile</a>'
+            : '';
+        $html .= '<div class="mt-4 flex flex-wrap gap-3">' . $primaryCta . $secondaryCta . $tertiaryCta . $profileCta . '<a href="/notifications/" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white bg-white/10 hover:bg-white/15">Notifications</a></div>';
         $html .= '</div>';
         $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
         $html .= '<h3 class="text-lg font-semibold text-white">Snapshot</h3>';
@@ -4493,6 +4499,50 @@ class GigTuneShortcodeService
         }
         if ($rowsToRender !== []) {
             $out .= '</div>';
+        }
+
+        if (!$archiveOnly && $archivedRows !== []) {
+            $out .= '<details class="rounded-xl border border-white/10 bg-black/20 p-3">';
+            $out .= '<summary class="cursor-pointer select-none text-sm font-semibold text-white">Archived bookings (' . count($archivedRows) . ')</summary>';
+            $out .= '<div class="mt-3 space-y-3">';
+            foreach (array_slice($archivedRows, 0, 20) as $row) {
+                $id = (int) $row->ID;
+                $meta = $metaMap[$id] ?? [];
+                $status = $this->toSentenceCase((string) ($meta['gigtune_booking_status'] ?? ''));
+                $payment = $this->toSentenceCase((string) ($meta['gigtune_payment_status'] ?? ''));
+                $payout = $this->toSentenceCase((string) ($meta['gigtune_payout_status'] ?? ''));
+                $refund = $this->toSentenceCase((string) ($meta['gigtune_refund_status'] ?? ''));
+                $eventDate = trim((string) ($meta['gigtune_booking_event_date'] ?? ''));
+                $partyId = $artist
+                    ? (int) ($meta['gigtune_booking_client_user_id'] ?? 0)
+                    : (int) ($meta['gigtune_booking_artist_profile_id'] ?? 0);
+                $partyLink = $artist
+                    ? '/client-profile/?client_user_id=' . $partyId
+                    : '/artist-profile/?artist_id=' . $partyId;
+
+                $out .= '<article class="rounded-xl border border-white/10 bg-black/20 p-4">';
+                $out .= '<div class="flex flex-wrap items-center justify-between gap-3">';
+                $out .= '<div class="text-sm font-semibold text-white">Booking #' . $id . ' - ' . e($status !== '' ? $status : '-') . ' <span class="text-slate-400">Archived</span></div>';
+                $out .= '<a href="/messages/?booking_id=' . $id . '" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15">View Booking</a>';
+                $out .= '</div>';
+                $out .= '<div class="mt-2 text-xs text-slate-300">Payment: ' . e($payment !== '' ? $payment : '-') . ' | Payout: ' . e($payout !== '' ? $payout : '-') . ' | Refund: ' . e($refund !== '' ? $refund : '-') . '</div>';
+                $out .= '<div class="mt-1 text-xs text-slate-300">Event: ' . e($eventDate !== '' ? $eventDate : '-') . '</div>';
+                $out .= '<div class="mt-3 flex flex-wrap gap-2">';
+                if ($partyId > 0) {
+                    $out .= '<a href="' . e($partyLink) . '" class="inline-flex items-center rounded-lg bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/15">' . ($artist ? 'View Client Profile' : 'View Artist Profile') . '</a>';
+                }
+                $out .= '<form method="post" class="inline-flex">'
+                    . '<input type="hidden" name="gigtune_booking_archive_submit" value="1">'
+                    . '<input type="hidden" name="gigtune_booking_archive_nonce" value="' . e($nonce) . '">'
+                    . '<input type="hidden" name="gigtune_booking_archive_action" value="restore">'
+                    . '<input type="hidden" name="gigtune_booking_archive_id" value="' . $id . '">'
+                    . '<button type="submit" class="inline-flex items-center rounded-lg bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/15">Restore</button>'
+                    . '</form>';
+                $out .= '</div>';
+                $out .= '</article>';
+            }
+            $out .= '</div>';
+            $out .= '</details>';
         }
 
         return $out . '</div>';

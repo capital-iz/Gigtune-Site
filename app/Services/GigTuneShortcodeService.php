@@ -21,6 +21,8 @@ class GigTuneShortcodeService
         'gigtune_role_nav' => 'roleNav',
         'gigtune_artist_dashboard' => 'artistDashboard',
         'gigtune_client_dashboard' => 'clientDashboard',
+        'gigtune_artist_bookings_archive' => 'artistBookingsArchive',
+        'gigtune_client_bookings_archive' => 'clientBookingsArchive',
         'gigtune_artist_feed' => 'artistFeed',
         'gigtune_open_client_posts' => 'artistFeed',
         'gigtune_artist_directory' => 'artistDirectory',
@@ -439,6 +441,8 @@ class GigTuneShortcodeService
     private function roleNav(array $a, ?array $u): string { return is_array($u) ? '<div class="mb-4 flex flex-wrap gap-2"><a class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200" href="/my-account-page/">Account</a><a class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200" href="/messages/">Messages</a><a class="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-slate-200" href="/notifications/">Notifications</a></div>' : ''; }
     private function artistDashboard(array $a, ?array $u, array $ctx = []): string { return $this->dashboardShell($u, true, $ctx); }
     private function clientDashboard(array $a, ?array $u, array $ctx = []): string { return $this->dashboardShell($u, false, $ctx); }
+    private function artistBookingsArchive(array $a, ?array $u, array $ctx = []): string { return $this->bookingsTable($u, true, $ctx, true); }
+    private function clientBookingsArchive(array $a, ?array $u, array $ctx = []): string { return $this->bookingsTable($u, false, $ctx, true); }
     private function artistFeed(array $a, ?array $u = null, array $ctx = []): string { return $this->renderPsaFeed($a, $u, $ctx); }
     private function artistDirectory(array $a): string { return $this->artistCards(max(1, min(60, (int) ($a['limit'] ?? 18)))); }
     private function featuredArtists(array $a): string { return $this->artistCards(max(1, min(12, (int) ($a['limit'] ?? 6)))); }
@@ -4266,8 +4270,11 @@ class GigTuneShortcodeService
         $html .= '<div class="mt-4">' . $this->snapshot($u, $artist) . '</div>';
         $html .= '</div>';
         $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
+        $html .= '<div class="flex flex-wrap items-center justify-between gap-3">';
         $html .= '<h3 class="text-lg font-semibold text-white">Recent Bookings</h3>';
-        $html .= '<div class="mt-4">' . $this->bookingsTable($u, $artist, $ctx) . '</div>';
+        $html .= '<a href="/bookings-archive/" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15">Open archive</a>';
+        $html .= '</div>';
+        $html .= '<div class="mt-4">' . $this->bookingsTable($u, $artist, $ctx, false) . '</div>';
         $html .= '</div>';
         $html .= '</div>';
 
@@ -4291,7 +4298,7 @@ class GigTuneShortcodeService
         return $html;
     }
 
-    private function bookingsTable(?array $u, bool $artist, array $ctx = []): string
+    private function bookingsTable(?array $u, bool $artist, array $ctx = [], bool $archiveOnly = false): string
     {
         if (!is_array($u)) {
             return '<div class="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">Sign in required.</div>';
@@ -4390,7 +4397,7 @@ class GigTuneShortcodeService
 
         $rows = $query->limit(80)->get(['p.ID', 'p.post_title', 'p.post_date']);
         if ($rows->isEmpty() && $statusMessage === '' && $errorMessage === '') {
-            return '<div class="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">No bookings yet.</div>';
+            return '<div class="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">' . ($archiveOnly ? 'No archived bookings yet.' : 'No bookings yet.') . '</div>';
         }
 
         $ids = [];
@@ -4430,12 +4437,13 @@ class GigTuneShortcodeService
             $out .= '<div class="rounded-xl border border-rose-500/30 bg-rose-500/10 p-3 text-sm text-rose-200">' . e($errorMessage) . '</div>';
         }
 
-        if ($activeRows === []) {
-            $out .= '<div class="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">No active bookings.</div>';
+        $rowsToRender = $archiveOnly ? $archivedRows : $activeRows;
+        if ($rowsToRender === []) {
+            $out .= '<div class="rounded-xl border border-slate-700 bg-slate-900/70 px-4 py-3 text-sm text-slate-300">' . ($archiveOnly ? 'No archived bookings.' : 'No active bookings.') . '</div>';
         } else {
             $out .= '<div class="space-y-3">';
         }
-        foreach (array_slice($activeRows, 0, 20) as $row) {
+        foreach (array_slice($rowsToRender, 0, 20) as $row) {
             $id = (int) $row->ID;
             $meta = $metaMap[$id] ?? [];
             $status = $this->toSentenceCase((string) ($meta['gigtune_booking_status'] ?? ''));
@@ -4453,7 +4461,8 @@ class GigTuneShortcodeService
 
             $out .= '<article class="rounded-xl border border-white/10 bg-black/20 p-4">';
             $out .= '<div class="flex flex-wrap items-center justify-between gap-3">';
-            $out .= '<div class="text-sm font-semibold text-white">Booking #' . $id . ' - ' . e($status !== '' ? $status : '-') . '</div>';
+            $suffix = $archiveOnly ? ' <span class="text-slate-400">Archived</span>' : '';
+            $out .= '<div class="text-sm font-semibold text-white">Booking #' . $id . ' - ' . e($status !== '' ? $status : '-') . $suffix . '</div>';
             $out .= '<a href="/messages/?booking_id=' . $id . '" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15">View Booking</a>';
             $out .= '</div>';
             $out .= '<div class="mt-2 text-xs text-slate-300">Payment: ' . e($payment !== '' ? $payment : '-') . ' | Payout: ' . e($payout !== '' ? $payout : '-') . ' | Refund: ' . e($refund !== '' ? $refund : '-') . '</div>';
@@ -4462,7 +4471,15 @@ class GigTuneShortcodeService
             if ($partyId > 0) {
                 $out .= '<a href="' . e($partyLink) . '" class="inline-flex items-center rounded-lg bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/15">' . ($artist ? 'View Client Profile' : 'View Artist Profile') . '</a>';
             }
-            if ($allowArchive) {
+            if ($archiveOnly) {
+                $out .= '<form method="post" class="inline-flex">'
+                    . '<input type="hidden" name="gigtune_booking_archive_submit" value="1">'
+                    . '<input type="hidden" name="gigtune_booking_archive_nonce" value="' . e($nonce) . '">'
+                    . '<input type="hidden" name="gigtune_booking_archive_action" value="restore">'
+                    . '<input type="hidden" name="gigtune_booking_archive_id" value="' . $id . '">'
+                    . '<button type="submit" class="inline-flex items-center rounded-lg bg-white/10 px-3 py-2 text-xs text-white hover:bg-white/15">Restore</button>'
+                    . '</form>';
+            } elseif ($allowArchive) {
                 $out .= '<form method="post" class="inline-flex">'
                     . '<input type="hidden" name="gigtune_booking_archive_submit" value="1">'
                     . '<input type="hidden" name="gigtune_booking_archive_nonce" value="' . e($nonce) . '">'
@@ -4474,34 +4491,8 @@ class GigTuneShortcodeService
             $out .= '</div>';
             $out .= '</article>';
         }
-        if ($activeRows !== []) {
+        if ($rowsToRender !== []) {
             $out .= '</div>';
-        }
-
-        if ($archivedRows !== []) {
-            $out .= '<div class="pt-3"><div class="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-400">Archived bookings</div><div class="space-y-3">';
-            foreach (array_slice($archivedRows, 0, 20) as $row) {
-                $id = (int) $row->ID;
-                $meta = $metaMap[$id] ?? [];
-                $status = $this->toSentenceCase((string) ($meta['gigtune_booking_status'] ?? ''));
-                $eventDate = trim((string) ($meta['gigtune_booking_event_date'] ?? ''));
-                $out .= '<article class="rounded-xl border border-white/10 bg-black/20 p-4">';
-                $out .= '<div class="flex flex-wrap items-center justify-between gap-3">';
-                $out .= '<div class="text-sm font-semibold text-white">Booking #' . $id . ' - ' . e($status !== '' ? $status : '-') . ' <span class="text-slate-400">Archived</span></div>';
-                $out .= '<div class="flex flex-wrap gap-2">';
-                $out .= '<a href="/messages/?booking_id=' . $id . '" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-1.5 text-xs font-semibold text-white hover:bg-white/15">View Booking</a>';
-                $out .= '<form method="post" class="inline-flex">'
-                    . '<input type="hidden" name="gigtune_booking_archive_submit" value="1">'
-                    . '<input type="hidden" name="gigtune_booking_archive_nonce" value="' . e($nonce) . '">'
-                    . '<input type="hidden" name="gigtune_booking_archive_action" value="restore">'
-                    . '<input type="hidden" name="gigtune_booking_archive_id" value="' . $id . '">'
-                    . '<button type="submit" class="inline-flex items-center rounded-lg bg-white/10 px-3 py-1.5 text-xs text-white hover:bg-white/15">Restore</button>'
-                    . '</form>';
-                $out .= '</div></div>';
-                $out .= '<div class="mt-2 text-xs text-slate-300">Status: ' . e($status !== '' ? $status : '-') . ' | Event: ' . e($eventDate !== '' ? $eventDate : '-') . '</div>';
-                $out .= '</article>';
-            }
-            $out .= '</div></div>';
         }
 
         return $out . '</div>';

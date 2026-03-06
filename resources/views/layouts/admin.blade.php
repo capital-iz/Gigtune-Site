@@ -18,7 +18,7 @@
         <div class="mx-auto flex max-w-7xl items-center justify-between px-4 py-4 sm:px-6 lg:px-8">
             <div class="flex items-center gap-3">
                 <a href="/admin-dashboard" class="text-lg font-semibold text-white">GigTune Admin</a>
-                <a href="/gts-admin-users" class="rounded-md border border-white/10 bg-white/10 px-2.5 py-1 text-xs text-slate-100 hover:bg-white/15">GTS Users</a>
+                <a href="/gts-admin-users" class="rounded-md border border-white/10 bg-white/10 px-2.5 py-1 text-xs text-slate-100 hover:bg-white/15">Administrator</a>
             </div>
             <div class="flex items-center gap-3 text-sm">
                 @if(isset($currentUser) && is_array($currentUser))

@@ -39,7 +39,17 @@ return [
 
         'smtp' => [
             'transport' => 'smtp',
-            'scheme' => env('MAIL_SCHEME'),
+            'scheme' => (function (): string {
+                $scheme = strtolower(trim((string) env('MAIL_SCHEME', '')));
+                if ($scheme === 'ssl') {
+                    return 'smtps';
+                }
+                if ($scheme === '' || $scheme === 'null') {
+                    $encryption = strtolower(trim((string) env('MAIL_ENCRYPTION', '')));
+                    return $encryption === 'ssl' ? 'smtps' : 'smtp';
+                }
+                return in_array($scheme, ['smtp', 'smtps'], true) ? $scheme : 'smtp';
+            })(),
             'url' => env('MAIL_URL'),
             'host' => env('MAIL_HOST', '127.0.0.1'),
             'port' => env('MAIL_PORT', 2525),

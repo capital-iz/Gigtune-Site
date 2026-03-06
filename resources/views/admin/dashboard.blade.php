@@ -1011,7 +1011,7 @@
                     <form method="post" action="/admin-dashboard/site-maintenance" class="mt-3">
                         @csrf
                         <input type="hidden" name="enabled" value="{{ !empty($siteMaintenanceEnabled) ? '0' : '1' }}">
-                        <button type="submit" class="inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-semibold text-white {{ !empty($siteMaintenanceEnabled) ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-amber-600 hover:bg-amber-500' }}">
+                        <button type="submit" class="inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-semibold text-white {{ !empty($siteMaintenanceEnabled) ? 'bg-emerald-600 hover:bg-emerald-500' : 'bg-rose-600 hover:bg-rose-500' }}">
                             {{ !empty($siteMaintenanceEnabled) ? 'Disable Maintenance Mode' : 'Enable Maintenance Mode' }}
                         </button>
                     </form>

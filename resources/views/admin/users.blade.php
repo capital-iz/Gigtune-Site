@@ -1,4 +1,4 @@
-@extends('layouts.admin', ['title' => 'GTS Admin Users', 'currentUser' => $currentUser ?? null])
+@extends('layouts.admin', ['title' => 'Administrator Users', 'currentUser' => $currentUser ?? null])
 
 @section('content')
     <div class="grid gap-4 md:grid-cols-5">
@@ -66,7 +66,7 @@
 
         <section class="rounded-xl border border-white/10 bg-white/5 p-5">
             <h2 class="text-lg font-semibold text-white">Quick Links</h2>
-            <p class="mt-1 text-sm text-slate-300">Use GTS routes instead of wp-admin.</p>
+            <p class="mt-1 text-sm text-slate-300">Use administrator routes instead of wp-admin.</p>
             <div class="mt-3 flex flex-col gap-2 text-sm">
                 <a href="/admin-dashboard" class="text-blue-300 hover:text-blue-200">Admin Dashboard</a>
                 <a href="/admin-dashboard/payments" class="text-blue-300 hover:text-blue-200">Payments Queue</a>
@@ -81,7 +81,7 @@
         <div class="flex flex-wrap items-end justify-between gap-3">
             <div>
                 <h2 class="text-lg font-semibold text-white">User Management</h2>
-                <p class="mt-1 text-sm text-slate-300">Manage roles and remove accounts from GTS admin.</p>
+                <p class="mt-1 text-sm text-slate-300">Manage roles and remove accounts from the Administrator panel.</p>
             </div>
             <form class="flex flex-wrap items-end gap-2" method="get" action="/gts-admin-users">
                 <div>

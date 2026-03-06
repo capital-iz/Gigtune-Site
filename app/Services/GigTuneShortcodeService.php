@@ -2313,10 +2313,17 @@ class GigTuneShortcodeService
                 'gigtune_booking_locked',
                 'gigtune_booking_budget',
                 'gigtune_booking_quote_amount',
+                'gigtune_booking_requires_accommodation',
+                'gigtune_booking_client_offers_accommodation',
+                'gigtune_payment_accommodation_fee',
                 'gigtune_payment_method',
                 'gigtune_payment_reported_at',
                 'gigtune_payment_window_expires_at',
                 'gigtune_payment_reference_human',
+                'gigtune_client_rating_submitted',
+                'gigtune_artist_rating_submitted',
+                'gigtune_booking_completed_by_artist_at',
+                'gigtune_booking_completed_confirmed_at',
             ])[$bookingId] ?? [];
 
             $clientUserId = (int) ($bookingMeta['gigtune_booking_client_user_id'] ?? 0);
@@ -2358,6 +2365,15 @@ class GigTuneShortcodeService
                 $disputeBody = trim((string) $request->input('gigtune_dispute_text', ''));
                 $threadMessage = trim((string) $request->input('gigtune_booking_thread_message', ''));
                 $threadSubject = trim((string) $request->input('gigtune_booking_thread_subject', ''));
+                $ratePunctuality = abs((int) $request->input('gigtune_rate_punctuality', 0));
+                $ratePerformanceQuality = abs((int) $request->input('gigtune_rate_performance_quality', 0));
+                $rateCharacter = abs((int) $request->input('gigtune_rate_character', 0));
+                $rateCompletionSpeed = abs((int) $request->input('gigtune_rate_completion_speed', 0));
+                $rateProfessionalism = abs((int) $request->input('gigtune_rate_professionalism', 0));
+                $rateWorkingConditions = abs((int) $request->input('gigtune_rate_working_conditions', 0));
+                $rateClientCharacter = abs((int) $request->input('gigtune_rate_client_character', 0));
+                $disputeWindowDeadlineTs = $this->bookingDisputeDeadlineTimestamp((string) ($bookingMeta['gigtune_booking_event_date'] ?? ''));
+                $disputeWindowClosed = $disputeWindowDeadlineTs > 0 && time() > $disputeWindowDeadlineTs;
 
                 if (!$this->verifyWpNonce($nonce, 'gigtune_booking_action')) {
                     $errorMessage = 'Security check failed.';
@@ -2557,11 +2573,14 @@ class GigTuneShortcodeService
                         $errorMessage = 'Only booking participants can raise a dispute.';
                     } elseif ((string) ($bookingMeta['gigtune_dispute_raised'] ?? '') === '1') {
                         $errorMessage = 'A dispute is already open for this booking.';
+                    } elseif ($disputeWindowClosed) {
+                        $errorMessage = 'Dispute window has closed for this booking.';
                     } elseif ($disputeSubject === '' || $disputeBody === '') {
                         $errorMessage = 'Dispute subject and details are required.';
                     } else {
                         $ts = now();
                         $this->upsertPostMeta($bookingId, 'gigtune_dispute_raised', '1');
+                        $this->upsertPostMeta($bookingId, 'gigtune_dispute_raised_at', (string) $ts->timestamp);
                         $this->upsertPostMeta($bookingId, 'gigtune_booking_status', 'DISPUTE_OPEN');
                         $this->upsertPostMeta($bookingId, 'gigtune_dispute_opened_at', (string) $ts->timestamp);
 
@@ -2607,6 +2626,8 @@ class GigTuneShortcodeService
                 } elseif ($action === 'request_refund') {
                     if (!$isClientOwner && !$isAdmin) {
                         $errorMessage = 'Only the requesting client can request a refund.';
+                    } elseif (in_array($currentStatus, ['COMPLETED_BY_ARTIST', 'COMPLETED_CONFIRMED'], true)) {
+                        $errorMessage = 'Refund requests are unavailable after completion.';
                     } elseif (!in_array($paymentStatus, ['PAID_ESCROWED', 'PAID', 'AWAITING_PAYMENT_CONFIRMATION', 'CONFIRMED_HELD_PENDING_COMPLETION', 'REFUNDED_PARTIAL'], true)) {
                         $errorMessage = 'Refund requests require a paid or held booking.';
                     } else {
@@ -2618,6 +2639,106 @@ class GigTuneShortcodeService
                             $this->createNotification($adminUserId, 'refund', 'Refund request submitted for booking #' . $bookingId . '.', ['object_type' => 'booking', 'object_id' => $bookingId]);
                         }
                         $statusMessage = 'Refund request submitted.';
+                    }
+                } elseif ($action === 'rate_artist') {
+                    if (!$isClientOwner && !$isAdmin) {
+                        $errorMessage = 'Only the booking client can rate the artist.';
+                    } elseif ($currentStatus !== 'COMPLETED_CONFIRMED') {
+                        $errorMessage = 'Rating is available after completion is confirmed.';
+                    } elseif ((string) ($bookingMeta['gigtune_dispute_raised'] ?? '') === '1' || $currentStatus === 'DISPUTE_OPEN') {
+                        $errorMessage = 'Rating is unavailable while a dispute is open.';
+                    } elseif ((string) ($bookingMeta['gigtune_client_rating_submitted'] ?? '') === '1') {
+                        $errorMessage = 'You already rated this artist.';
+                    } elseif (
+                        $ratePunctuality < 1 || $ratePunctuality > 5
+                        || $ratePerformanceQuality < 1 || $ratePerformanceQuality > 5
+                        || $rateCharacter < 1 || $rateCharacter > 5
+                    ) {
+                        $errorMessage = 'Rating values must be between 1 and 5.';
+                    } elseif ($artistProfileId <= 0) {
+                        $errorMessage = 'Artist profile is missing.';
+                    } else {
+                        $payload = [
+                            'punctuality' => $ratePunctuality,
+                            'performance_quality' => $ratePerformanceQuality,
+                            'character' => $rateCharacter,
+                            'submitted_at' => time(),
+                        ];
+                        $this->upsertPostMeta($bookingId, 'gigtune_client_rating_payload', serialize($payload));
+                        $this->upsertPostMeta($bookingId, 'gigtune_client_rating_submitted', '1');
+
+                        $this->updateProfileRatingAverage($artistProfileId, 'gigtune_artist_rating_punctuality_avg', 'gigtune_artist_rating_punctuality_count', $ratePunctuality);
+                        $this->updateProfileRatingAverage($artistProfileId, 'gigtune_artist_rating_performance_quality_avg', 'gigtune_artist_rating_performance_quality_count', $ratePerformanceQuality);
+                        $this->updateProfileRatingAverage($artistProfileId, 'gigtune_artist_rating_character_avg', 'gigtune_artist_rating_character_count', $rateCharacter);
+                        $summary = $this->artistRatingSummary($artistProfileId);
+                        $this->upsertPostMeta($artistProfileId, 'gigtune_performance_rating_avg', (string) $summary['rating_avg']);
+                        $this->upsertPostMeta($artistProfileId, 'gigtune_performance_rating_count', (string) $summary['rating_count']);
+                        $this->upsertPostMeta($artistProfileId, 'gigtune_reliability_rating_avg', (string) $summary['rating_avg']);
+                        $this->upsertPostMeta($artistProfileId, 'gigtune_reliability_rating_count', (string) $summary['rating_count']);
+
+                        if ($artistOwnerId > 0) {
+                            $this->createNotification($artistOwnerId, 'booking', 'Client submitted a rating for booking #' . $bookingId . '.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                        }
+                        $statusMessage = 'Artist rating submitted.';
+                    }
+                } elseif ($action === 'rate_client') {
+                    if (!$isArtistOwner && !$isAdmin) {
+                        $errorMessage = 'Only the assigned artist can rate the client.';
+                    } elseif ($currentStatus !== 'COMPLETED_CONFIRMED') {
+                        $errorMessage = 'Rating is available after completion is confirmed.';
+                    } elseif ((string) ($bookingMeta['gigtune_dispute_raised'] ?? '') === '1' || $currentStatus === 'DISPUTE_OPEN') {
+                        $errorMessage = 'Rating is unavailable while a dispute is open.';
+                    } elseif ((string) ($bookingMeta['gigtune_artist_rating_submitted'] ?? '') === '1') {
+                        $errorMessage = 'You already rated this client.';
+                    } elseif (
+                        $rateCompletionSpeed < 1 || $rateCompletionSpeed > 5
+                        || $rateProfessionalism < 1 || $rateProfessionalism > 5
+                        || $rateWorkingConditions < 1 || $rateWorkingConditions > 5
+                        || $rateClientCharacter < 1 || $rateClientCharacter > 5
+                    ) {
+                        $errorMessage = 'Rating values must be between 1 and 5.';
+                    } elseif ($clientUserId <= 0) {
+                        $errorMessage = 'Client account is missing.';
+                    } else {
+                        $artistCompletedAt = (int) ($bookingMeta['gigtune_booking_completed_by_artist_at'] ?? 0);
+                        $clientConfirmedAt = (int) ($bookingMeta['gigtune_booking_completed_confirmed_at'] ?? 0);
+                        $completionSpeedHours = 0.0;
+                        if ($artistCompletedAt > 0 && $clientConfirmedAt >= $artistCompletedAt) {
+                            $completionSpeedHours = round(($clientConfirmedAt - $artistCompletedAt) / 3600, 2);
+                        }
+
+                        $overallAvg = round((($rateCompletionSpeed + $rateProfessionalism + $rateWorkingConditions + $rateClientCharacter) / 4), 2);
+                        $ratingId = (int) $this->db()->table($this->posts())->insertGetId([
+                            'post_author' => $uid,
+                            'post_date' => $nowMysql,
+                            'post_date_gmt' => now('UTC')->format('Y-m-d H:i:s'),
+                            'post_content' => '',
+                            'post_title' => 'Client Rating - Booking #' . $bookingId . ' - ' . now()->format('Y-m-d H:i'),
+                            'post_status' => 'publish',
+                            'comment_status' => 'closed',
+                            'ping_status' => 'closed',
+                            'post_name' => 'client-rating-' . $bookingId . '-' . now()->timestamp . '-' . random_int(100, 999),
+                            'post_modified' => $nowMysql,
+                            'post_modified_gmt' => now('UTC')->format('Y-m-d H:i:s'),
+                            'post_type' => 'gt_client_rating',
+                        ]);
+                        if ($ratingId <= 0) {
+                            $errorMessage = 'Unable to save client rating.';
+                        } else {
+                            $this->upsertPostMeta($ratingId, 'gigtune_client_rating_booking_id', (string) $bookingId);
+                            $this->upsertPostMeta($ratingId, 'gigtune_client_rating_client_user_id', (string) $clientUserId);
+                            $this->upsertPostMeta($ratingId, 'gigtune_client_rating_artist_user_id', (string) $uid);
+                            $this->upsertPostMeta($ratingId, 'gigtune_client_rating_booking_completion_speed', (string) $rateCompletionSpeed);
+                            $this->upsertPostMeta($ratingId, 'gigtune_client_rating_professionalism', (string) $rateProfessionalism);
+                            $this->upsertPostMeta($ratingId, 'gigtune_client_rating_working_conditions', (string) $rateWorkingConditions);
+                            $this->upsertPostMeta($ratingId, 'gigtune_client_rating_character', (string) $rateClientCharacter);
+                            $this->upsertPostMeta($ratingId, 'gigtune_client_rating_overall_avg', (string) $overallAvg);
+                            $this->upsertPostMeta($ratingId, 'gigtune_client_rating_completion_speed_hours', (string) $completionSpeedHours);
+                            $this->upsertPostMeta($ratingId, 'gigtune_client_rating_created_at', $nowTs);
+                            $this->upsertPostMeta($bookingId, 'gigtune_artist_rating_submitted', '1');
+                            $this->createNotification($clientUserId, 'booking', 'Artist submitted a rating for booking #' . $bookingId . '.', ['object_type' => 'booking', 'object_id' => $bookingId]);
+                            $statusMessage = 'Client rating submitted.';
+                        }
                     }
                 } elseif ($action === 'send_message') {
                     if (!$isClientOwner && !$isArtistOwner && !$isAdmin) {
@@ -2680,16 +2801,24 @@ class GigTuneShortcodeService
                     'gigtune_payout_status',
                     'gigtune_refund_status',
                     'gigtune_dispute_raised',
+                    'gigtune_booking_artist_profile_id',
                     'gigtune_booking_event_date',
                     'gigtune_booking_location_text',
                     'gigtune_booking_budget',
                     'gigtune_booking_quote_amount',
+                    'gigtune_booking_requires_accommodation',
+                    'gigtune_booking_client_offers_accommodation',
+                    'gigtune_payment_accommodation_fee',
                     'gigtune_booking_responded_at',
                     'gigtune_booking_reject_reason',
                     'gigtune_payment_method',
                     'gigtune_payment_reported_at',
                     'gigtune_payment_window_expires_at',
                     'gigtune_payment_reference_human',
+                    'gigtune_client_rating_submitted',
+                    'gigtune_artist_rating_submitted',
+                    'gigtune_booking_completed_by_artist_at',
+                    'gigtune_booking_completed_confirmed_at',
                 ])[$bookingId] ?? [];
             }
 
@@ -2711,8 +2840,11 @@ class GigTuneShortcodeService
             if ($paymentReferenceHuman === '') {
                 $paymentReferenceHuman = $this->bookingPaymentReferenceHuman($bookingId, $clientUserId);
             }
+            $accommodationFeeAmount = $this->bookingAccommodationFeeAmount($bookingMeta);
             $checkoutTotalCents = $this->bookingYocoAmountCents($bookingId);
             $checkoutTotal = $checkoutTotalCents > 0 ? ($checkoutTotalCents / 100) : 0.0;
+            $disputeWindowDeadlineTs = $this->bookingDisputeDeadlineTimestamp($eventDate);
+            $disputeWindowClosed = $disputeWindowDeadlineTs > 0 && time() > $disputeWindowDeadlineTs;
 
             $currentStatusRaw = strtoupper(trim((string) ($bookingMeta['gigtune_booking_status'] ?? '')));
             $paymentStatusRaw = strtoupper(trim((string) ($bookingMeta['gigtune_payment_status'] ?? '')));
@@ -2757,6 +2889,7 @@ class GigTuneShortcodeService
             if ($quoteAmount > 0) {
                 $html .= '<p>Quote: <span class="text-slate-100">ZAR ' . e(number_format($quoteAmount)) . '</span></p>';
             }
+            $html .= '<p>Accommodation fee: <span class="text-slate-100">ZAR ' . e(number_format($accommodationFeeAmount, 2)) . '</span></p>';
             if ($paymentMethod !== '') {
                 $html .= '<p>Method: <span class="text-slate-100">' . e($paymentMethod) . '</span></p>';
             }
@@ -2847,16 +2980,16 @@ class GigTuneShortcodeService
                 $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="cancel_artist">';
                 $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Cancel as artist</button></form>';
             }
-            if (($isClientOwner || $isArtistOwner || $isAdmin) && $currentStatusRaw !== 'DISPUTE_OPEN' && !in_array($currentStatusRaw, ['CANCELLED_BY_CLIENT', 'CANCELLED_BY_ARTIST'], true)) {
+            if (($isClientOwner || $isArtistOwner || $isAdmin) && !$disputeWindowClosed && $currentStatusRaw !== 'DISPUTE_OPEN' && !in_array($currentStatusRaw, ['CANCELLED_BY_CLIENT', 'CANCELLED_BY_ARTIST'], true)) {
                 $html .= '<button type="button" data-gigtune-open-dispute="1" class="inline-flex items-center justify-center rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-500">Open dispute</button>';
             }
-            if (($isClientOwner || $isAdmin) && in_array($paymentStatusRaw, ['PAID_ESCROWED', 'PAID', 'CONFIRMED_HELD_PENDING_COMPLETION', 'REFUNDED_PARTIAL'], true)) {
+            if (($isClientOwner || $isAdmin) && !in_array($currentStatusRaw, ['COMPLETED_BY_ARTIST', 'COMPLETED_CONFIRMED'], true) && in_array($paymentStatusRaw, ['PAID_ESCROWED', 'PAID', 'CONFIRMED_HELD_PENDING_COMPLETION', 'REFUNDED_PARTIAL'], true)) {
                 $html .= '<form method="post" class="inline-flex">';
                 $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="request_refund">';
                 $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Request refund</button></form>';
             }
             $html .= '</div></div>';
-            if (($isClientOwner || $isArtistOwner || $isAdmin) && $currentStatusRaw !== 'DISPUTE_OPEN' && !in_array($currentStatusRaw, ['CANCELLED_BY_CLIENT', 'CANCELLED_BY_ARTIST'], true)) {
+            if (($isClientOwner || $isArtistOwner || $isAdmin) && !$disputeWindowClosed && $currentStatusRaw !== 'DISPUTE_OPEN' && !in_array($currentStatusRaw, ['CANCELLED_BY_CLIENT', 'CANCELLED_BY_ARTIST'], true)) {
                 $html .= '<div data-gigtune-dispute-form="1" class="hidden rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">';
                 $html .= '<form method="post" class="space-y-3">';
                 $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="raise_dispute">';
@@ -2865,6 +2998,59 @@ class GigTuneShortcodeService
                 $html .= '<div class="flex flex-wrap gap-2"><button type="submit" class="inline-flex items-center justify-center rounded-lg bg-amber-600 px-3 py-2 text-xs font-semibold text-white hover:bg-amber-500">Submit dispute</button><button type="button" data-gigtune-close-dispute="1" class="inline-flex items-center justify-center rounded-lg bg-white/10 px-3 py-2 text-xs font-semibold text-white hover:bg-white/15">Cancel</button></div>';
                 $html .= '</form></div>';
                 $html .= '<script>(function(){var openBtn=document.querySelector("[data-gigtune-open-dispute=\\"1\\"]");var closeBtn=document.querySelector("[data-gigtune-close-dispute=\\"1\\"]");var form=document.querySelector("[data-gigtune-dispute-form=\\"1\\"]");if(!openBtn||!form){return;}openBtn.addEventListener("click",function(){form.classList.remove("hidden");openBtn.classList.add("hidden");var s=form.querySelector("input[name=\'gigtune_dispute_subject\']");if(s){try{s.focus();}catch(e){}}});if(closeBtn){closeBtn.addEventListener("click",function(){form.classList.add("hidden");openBtn.classList.remove("hidden");});}})();</script>';
+            } elseif ($disputeWindowClosed) {
+                $html .= '<div class="rounded-xl border border-slate-600/40 bg-slate-900/40 p-3 text-xs text-slate-300">Dispute window expired for this booking.</div>';
+            }
+
+            $clientRated = (string) ($bookingMeta['gigtune_client_rating_submitted'] ?? '') === '1';
+            $artistRated = (string) ($bookingMeta['gigtune_artist_rating_submitted'] ?? '') === '1';
+            $hasOpenDispute = ((string) ($bookingMeta['gigtune_dispute_raised'] ?? '') === '1') || $currentStatusRaw === 'DISPUTE_OPEN';
+            if (in_array($currentStatusRaw, ['COMPLETED_CONFIRMED', 'DISPUTE_OPEN'], true)) {
+                $html .= '<div class="rounded-xl border border-white/10 bg-white/5 p-4">';
+                $html .= '<div class="text-sm font-semibold text-white">Post-booking ratings</div>';
+
+                if ($isClientOwner || $isAdmin) {
+                    if ($clientRated) {
+                        $html .= '<p class="mt-2 text-xs text-slate-300">Thanks - artist rating submitted.</p>';
+                    } elseif ($hasOpenDispute) {
+                        $html .= '<p class="mt-2 text-xs text-slate-300">Rating available once dispute is resolved.</p>';
+                    } elseif ($currentStatusRaw !== 'COMPLETED_CONFIRMED') {
+                        $html .= '<p class="mt-2 text-xs text-slate-300">Rating becomes available after booking completion is confirmed.</p>';
+                    } else {
+                        $html .= '<form method="post" class="mt-3 space-y-3">';
+                        $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="rate_artist">';
+                        $html .= '<div class="grid gap-3 md:grid-cols-3">';
+                        $html .= '<div><label class="mb-1 block text-xs font-semibold text-slate-200">Punctuality (1-5)</label><input type="number" min="1" max="5" name="gigtune_rate_punctuality" required class="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white"></div>';
+                        $html .= '<div><label class="mb-1 block text-xs font-semibold text-slate-200">Performance quality (1-5)</label><input type="number" min="1" max="5" name="gigtune_rate_performance_quality" required class="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white"></div>';
+                        $html .= '<div><label class="mb-1 block text-xs font-semibold text-slate-200">Character (1-5)</label><input type="number" min="1" max="5" name="gigtune_rate_character" required class="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white"></div>';
+                        $html .= '</div>';
+                        $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500">Submit artist rating</button>';
+                        $html .= '</form>';
+                    }
+                }
+
+                if ($isArtistOwner || $isAdmin) {
+                    if ($artistRated) {
+                        $html .= '<p class="mt-3 text-xs text-slate-300">Thanks - client rating submitted.</p>';
+                    } elseif ($hasOpenDispute) {
+                        $html .= '<p class="mt-3 text-xs text-slate-300">Rating available once dispute is resolved.</p>';
+                    } elseif ($currentStatusRaw !== 'COMPLETED_CONFIRMED') {
+                        $html .= '<p class="mt-3 text-xs text-slate-300">Rating becomes available after booking completion is confirmed.</p>';
+                    } else {
+                        $html .= '<form method="post" class="mt-3 space-y-3">';
+                        $html .= '<input type="hidden" name="gigtune_booking_action_submit" value="1"><input type="hidden" name="gigtune_booking_action_nonce" value="' . e($nonce) . '"><input type="hidden" name="gigtune_booking_action" value="rate_client">';
+                        $html .= '<div class="grid gap-3 md:grid-cols-2">';
+                        $html .= '<div><label class="mb-1 block text-xs font-semibold text-slate-200">Booking completion speed (1-5)</label><input type="number" min="1" max="5" name="gigtune_rate_completion_speed" required class="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white"></div>';
+                        $html .= '<div><label class="mb-1 block text-xs font-semibold text-slate-200">Professionalism (1-5)</label><input type="number" min="1" max="5" name="gigtune_rate_professionalism" required class="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white"></div>';
+                        $html .= '<div><label class="mb-1 block text-xs font-semibold text-slate-200">Working conditions (1-5)</label><input type="number" min="1" max="5" name="gigtune_rate_working_conditions" required class="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white"></div>';
+                        $html .= '<div><label class="mb-1 block text-xs font-semibold text-slate-200">Character (1-5)</label><input type="number" min="1" max="5" name="gigtune_rate_client_character" required class="w-full rounded-lg border border-white/10 bg-slate-950/60 px-3 py-2 text-sm text-white"></div>';
+                        $html .= '</div>';
+                        $html .= '<button type="submit" class="inline-flex items-center justify-center rounded-lg bg-indigo-600 px-4 py-2 text-xs font-semibold text-white hover:bg-indigo-500">Submit client rating</button>';
+                        $html .= '</form>';
+                    }
+                }
+
+                $html .= '</div>';
             }
 
             $html .= '<div class="rounded-xl border border-white/10 bg-white/5 p-4">';
@@ -6129,6 +6315,143 @@ HTML;
         if ($artistProfileId > 0) {
             $this->upsertPostMeta($postId, 'artist_profile_id', (string) $artistProfileId);
         }
+
+        try {
+            $this->mail->sendNotificationEmail(
+                $recipientUserId,
+                trim($type) !== '' ? $type : 'security',
+                $message,
+                [
+                    'object_type' => $objectType,
+                    'object_id' => $objectId,
+                ]
+            );
+        } catch (\Throwable) {
+            // Keep notification persistence non-blocking if mail transport fails.
+        }
+    }
+
+    private function bookingDisputeWindowDays(): int
+    {
+        return 7;
+    }
+
+    private function bookingDisputeDeadlineTimestamp(string $eventDate): int
+    {
+        $eventDate = trim($eventDate);
+        if ($eventDate === '') {
+            return 0;
+        }
+
+        $timezoneName = (string) config('app.timezone', 'Africa/Johannesburg');
+        try {
+            $timezone = new \DateTimeZone($timezoneName !== '' ? $timezoneName : 'Africa/Johannesburg');
+        } catch (\Throwable) {
+            $timezone = new \DateTimeZone('Africa/Johannesburg');
+        }
+
+        $eventTs = 0;
+        foreach (['Y-m-d\TH:i', 'Y-m-d H:i:s', 'Y-m-d H:i', 'Y-m-d'] as $format) {
+            $candidate = \DateTimeImmutable::createFromFormat($format, $eventDate, $timezone);
+            if ($candidate instanceof \DateTimeImmutable) {
+                $eventTs = $candidate->getTimestamp();
+                break;
+            }
+        }
+        if ($eventTs <= 0) {
+            $fallback = strtotime($eventDate);
+            if ($fallback !== false) {
+                $eventTs = (int) $fallback;
+            }
+        }
+        if ($eventTs <= 0) {
+            return 0;
+        }
+
+        return $eventTs + ($this->bookingDisputeWindowDays() * 86400);
+    }
+
+    /** @param array<string,string> $bookingMeta */
+    private function bookingAccommodationFeeAmount(array $bookingMeta): float
+    {
+        $explicit = max(0.0, (float) ($bookingMeta['gigtune_payment_accommodation_fee'] ?? 0));
+        if ($explicit > 0) {
+            return $explicit;
+        }
+
+        $requiresAccommodation = (string) ($bookingMeta['gigtune_booking_requires_accommodation'] ?? '') === '1';
+        $clientOffersAccommodation = (string) ($bookingMeta['gigtune_booking_client_offers_accommodation'] ?? '') === '1';
+        if (!$requiresAccommodation || $clientOffersAccommodation) {
+            return 0.0;
+        }
+
+        $artistProfileId = (int) ($bookingMeta['gigtune_booking_artist_profile_id'] ?? 0);
+        if ($artistProfileId <= 0) {
+            return 0.0;
+        }
+
+        $artistMeta = $this->postMetaMap([$artistProfileId], ['gigtune_artist_accom_fee_flat'])[$artistProfileId] ?? [];
+        return max(0.0, (float) ($artistMeta['gigtune_artist_accom_fee_flat'] ?? 0));
+    }
+
+    private function updateProfileRatingAverage(int $profileId, string $avgKey, string $countKey, int $score): void
+    {
+        $profileId = abs($profileId);
+        $score = max(1, min(5, $score));
+        if ($profileId <= 0 || $avgKey === '' || $countKey === '') {
+            return;
+        }
+
+        $currentAvg = max(0.0, (float) $this->getLatestPostMeta($profileId, $avgKey));
+        $currentCount = max(0, (int) $this->getLatestPostMeta($profileId, $countKey));
+        $newCount = $currentCount + 1;
+        $newAvg = $newCount > 0 ? round((($currentAvg * $currentCount) + $score) / $newCount, 2) : (float) $score;
+
+        $this->upsertPostMeta($profileId, $avgKey, (string) $newAvg);
+        $this->upsertPostMeta($profileId, $countKey, (string) $newCount);
+    }
+
+    /** @return array{rating_avg:float,rating_count:int} */
+    private function artistRatingSummary(int $profileId): array
+    {
+        $profileId = abs($profileId);
+        if ($profileId <= 0) {
+            return ['rating_avg' => 0.0, 'rating_count' => 0];
+        }
+
+        $meta = $this->postMetaMap([$profileId], [
+            'gigtune_artist_rating_punctuality_avg',
+            'gigtune_artist_rating_punctuality_count',
+            'gigtune_artist_rating_performance_quality_avg',
+            'gigtune_artist_rating_performance_quality_count',
+            'gigtune_artist_rating_character_avg',
+            'gigtune_artist_rating_character_count',
+        ])[$profileId] ?? [];
+
+        $sum = 0.0;
+        $count = 0;
+        $pairs = [
+            ['gigtune_artist_rating_punctuality_avg', 'gigtune_artist_rating_punctuality_count'],
+            ['gigtune_artist_rating_performance_quality_avg', 'gigtune_artist_rating_performance_quality_count'],
+            ['gigtune_artist_rating_character_avg', 'gigtune_artist_rating_character_count'],
+        ];
+        foreach ($pairs as [$avgKey, $countKey]) {
+            $avg = max(0.0, (float) ($meta[$avgKey] ?? 0));
+            $c = max(0, (int) ($meta[$countKey] ?? 0));
+            if ($c > 0) {
+                $sum += ($avg * $c);
+                $count += $c;
+            }
+        }
+
+        if ($count <= 0) {
+            return ['rating_avg' => 0.0, 'rating_count' => 0];
+        }
+
+        return [
+            'rating_avg' => round($sum / $count, 2),
+            'rating_count' => $count,
+        ];
     }
 
     private function profileNameById(int $profileId): string
@@ -6192,6 +6515,7 @@ HTML;
             'gigtune_booking_client_offers_accommodation',
             'gigtune_booking_artist_profile_id',
             'gigtune_booking_cost_breakdown',
+            'gigtune_payment_accommodation_fee',
         ])[$bookingId] ?? [];
 
         $breakdownRaw = trim((string) ($meta['gigtune_booking_cost_breakdown'] ?? ''));
@@ -6212,17 +6536,7 @@ HTML;
         }
 
         $travelFee = max(0.0, (float) ($meta['gigtune_booking_travel_amount'] ?? 0));
-        $requiresAccommodation = (string) ($meta['gigtune_booking_requires_accommodation'] ?? '') === '1';
-        $clientOffersAccommodation = (string) ($meta['gigtune_booking_client_offers_accommodation'] ?? '') === '1';
-        $accommodationFee = 0.0;
-
-        if ($requiresAccommodation && !$clientOffersAccommodation) {
-            $artistProfileId = (int) ($meta['gigtune_booking_artist_profile_id'] ?? 0);
-            if ($artistProfileId > 0) {
-                $artistMeta = $this->postMetaMap([$artistProfileId], ['gigtune_artist_accom_fee_flat'])[$artistProfileId] ?? [];
-                $accommodationFee = max(0.0, (float) ($artistMeta['gigtune_artist_accom_fee_flat'] ?? 0));
-            }
-        }
+        $accommodationFee = $this->bookingAccommodationFeeAmount($meta);
 
         $serviceFeeRate = 0.15;
         $serviceFee = round(($budget + $travelFee + $accommodationFee) * $serviceFeeRate, 2);

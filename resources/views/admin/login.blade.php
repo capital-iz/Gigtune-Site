@@ -14,7 +14,7 @@
                 <div class="flex flex-wrap items-center justify-between gap-2">
                     <h3 class="text-2xl font-bold text-white">Admin Sign-in</h3>
                     <span class="inline-flex items-center rounded-full border border-amber-400/40 bg-amber-500/15 px-4 py-1.5 text-xs font-semibold text-amber-200">
-                        GTS Security
+                        Administrator Security
                     </span>
                 </div>
                 <p class="mt-2 text-sm text-slate-300">This page is for GigTune Super administrators only.</p>

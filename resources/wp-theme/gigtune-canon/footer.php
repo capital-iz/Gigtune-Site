@@ -112,6 +112,10 @@ window.GigTuneLiveConfig = Object.assign({}, window.GigTuneLiveConfig || {}, {
   notificationsEnabled: <?php echo $gtLiveUserId > 0 ? 'true' : 'false'; ?>,
   userId: <?php echo (int) $gtLiveUserId; ?>,
   isAdmin: <?php echo $gtLiveIsAdmin ? 'true' : 'false'; ?>,
+  pushEnabled: <?php echo $gtLiveUserId > 0 ? 'true' : 'false'; ?>,
+  pushConfigEndpoint: '/wp-json/gigtune/v1/push/config',
+  pushSubscribeEndpoint: '/wp-json/gigtune/v1/push/subscribe',
+  pushUnsubscribeEndpoint: '/wp-json/gigtune/v1/push/unsubscribe',
   pollEndpoint: '/wp-json/gigtune/v1/notifications?per_page=12&page=1&only_unread=1&include_archived=0',
   pollIntervalMs: 20000
 });

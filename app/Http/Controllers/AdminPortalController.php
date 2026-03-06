@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Services\GigTuneMailService;
 use App\Services\GigTuneSiteMaintenanceService;
+use App\Services\GigTuneWebPushService;
 use App\Services\WordPressUserService;
 use Illuminate\Database\ConnectionInterface;
 use Illuminate\Http\RedirectResponse;
@@ -37,6 +38,7 @@ class AdminPortalController extends Controller
         private readonly WordPressUserService $users,
         private readonly GigTuneMailService $mail,
         private readonly GigTuneSiteMaintenanceService $siteMaintenance,
+        private readonly GigTuneWebPushService $webPush,
     ) {
     }
 
@@ -1151,6 +1153,39 @@ class AdminPortalController extends Controller
         foreach ($meta as $key => $value) {
             $this->upsertPostMeta($notificationId, $key, (string) $value);
         }
+
+        try {
+            $this->webPush->sendToUser(
+                $targetUserId,
+                'GigTune',
+                $message,
+                $this->notificationOpenUrl($objectType, $objectId),
+                [
+                    'notification_id' => $notificationId,
+                    'type' => $type !== '' ? $type : 'system',
+                    'object_type' => $objectType,
+                    'object_id' => max(0, $objectId),
+                ]
+            );
+        } catch (\Throwable) {
+            // Keep notification persistence non-blocking if push delivery fails.
+        }
+    }
+
+    private function notificationOpenUrl(string $objectType, int $objectId): string
+    {
+        $objectType = trim($objectType);
+        $objectId = max(0, $objectId);
+        if ($objectType === 'booking' && $objectId > 0) {
+            return '/messages/?booking_id=' . $objectId;
+        }
+        if ($objectType === 'kyc') {
+            return '/kyc-status/';
+        }
+        if ($objectType === 'psa') {
+            return '/browse-psa/';
+        }
+        return '/notifications/';
     }
 
     private function findPostIdByTypeAndMeta(string $postType, string $metaKey, string $metaValue): int

@@ -13,6 +13,7 @@ class GigTuneShortcodeService
         private readonly WordPressNotificationService $notifications,
         private readonly WordPressUserService $users,
         private readonly GigTuneMailService $mail,
+        private readonly GigTuneWebPushService $webPush,
     ) {
     }
 
@@ -7420,6 +7421,47 @@ HTML;
         } catch (\Throwable) {
             // Keep notification persistence non-blocking if mail transport fails.
         }
+
+        try {
+            $this->webPush->sendToUser(
+                $recipientUserId,
+                'GigTune',
+                $message,
+                $this->notificationOpenUrlFromContext($context),
+                [
+                    'notification_id' => $postId,
+                    'type' => trim($type) !== '' ? $type : 'security',
+                    'object_type' => $objectType,
+                    'object_id' => $objectId,
+                ]
+            );
+        } catch (\Throwable) {
+            // Keep notification persistence non-blocking if push delivery fails.
+        }
+    }
+
+    /** @param array<string,mixed> $context */
+    private function notificationOpenUrlFromContext(array $context): string
+    {
+        $explicit = trim((string) ($context['open_url'] ?? ''));
+        if ($explicit !== '') {
+            return $explicit;
+        }
+
+        $objectType = trim((string) ($context['object_type'] ?? ''));
+        $objectId = abs((int) ($context['object_id'] ?? 0));
+
+        if ($objectType === 'booking' && $objectId > 0) {
+            return '/messages/?booking_id=' . $objectId;
+        }
+        if ($objectType === 'kyc') {
+            return '/kyc-status/';
+        }
+        if ($objectType === 'psa') {
+            return '/browse-psa/';
+        }
+
+        return '/notifications/';
     }
 
     private function bookingDisputeWindowDays(): int

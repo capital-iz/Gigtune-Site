@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\GigTuneCoreParityController;
 use App\Http\Controllers\Api\GigTuneNotificationController;
 use App\Http\Controllers\Api\GigTunePaymentWebhookController;
 use App\Http\Controllers\Api\GigTunePolicyController;
+use App\Http\Controllers\Api\GigTunePushController;
 use App\Http\Controllers\AdminPortalController;
 use App\Http\Controllers\LegacyWordPressPathController;
 use App\Http\Controllers\SitePageController;
@@ -43,6 +44,14 @@ Route::prefix('wp-json/gigtune/v1')
                 Route::post('/{id}/archive', [GigTuneNotificationController::class, 'archive'])->whereNumber('id');
                 Route::post('/{id}/unarchive', [GigTuneNotificationController::class, 'unarchive'])->whereNumber('id');
                 Route::post('/{id}/delete', [GigTuneNotificationController::class, 'delete'])->whereNumber('id');
+            });
+
+        Route::middleware('gigtune.auth')
+            ->prefix('push')
+            ->group(function (): void {
+                Route::get('/config', [GigTunePushController::class, 'config']);
+                Route::post('/subscribe', [GigTunePushController::class, 'subscribe']);
+                Route::post('/unsubscribe', [GigTunePushController::class, 'unsubscribe']);
             });
 
         Route::get('/artists', [GigTuneCoreParityController::class, 'artists']);

@@ -41,4 +41,10 @@ return [
             'webhook_secret' => env('GIGTUNE_YOCO_WEBHOOK_SECRET', ''),
         ],
     ],
+    'push' => [
+        'enabled' => env('GIGTUNE_PUSH_ENABLED', true),
+        'vapid_subject' => env('GIGTUNE_PUSH_VAPID_SUBJECT', ''),
+        'vapid_public_key' => env('GIGTUNE_PUSH_VAPID_PUBLIC_KEY', ''),
+        'vapid_private_key' => env('GIGTUNE_PUSH_VAPID_PRIVATE_KEY', ''),
+    ],
 ];

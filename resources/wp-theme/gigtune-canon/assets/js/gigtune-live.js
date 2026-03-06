@@ -9,17 +9,24 @@
   var alertsToggleLabel = String(cfg.alertsToggleLabel || 'Enable Instant Alerts');
   var notificationsEnabled = !!cfg.notificationsEnabled;
   var userId = Number(cfg.userId || 0);
+  var pushEnabled = notificationsEnabled && cfg.pushEnabled !== false;
+  var pushConfigEndpoint = String(cfg.pushConfigEndpoint || '/wp-json/gigtune/v1/push/config');
+  var pushSubscribeEndpoint = String(cfg.pushSubscribeEndpoint || '/wp-json/gigtune/v1/push/subscribe');
+  var pushUnsubscribeEndpoint = String(cfg.pushUnsubscribeEndpoint || '/wp-json/gigtune/v1/push/unsubscribe');
   var pollEndpoint = String(cfg.pollEndpoint || '/wp-json/gigtune/v1/notifications?per_page=12&page=1&only_unread=1&include_archived=0');
   var pollIntervalMs = Number(cfg.pollIntervalMs || 20000);
   var storagePrefix = 'gigtune.live.' + appId + '.';
   var installDismissKey = storagePrefix + 'install.dismissed';
   var lastNotificationKey = storagePrefix + 'notifications.last_id.' + userId;
   var alertsOptInKey = storagePrefix + 'alerts.opt_in.' + userId;
+  var lastPushEndpointKey = storagePrefix + 'push.endpoint.' + userId;
 
   var deferredInstallPrompt = null;
   var isPolling = false;
   var firstPollComplete = false;
   var installFallbackShown = false;
+  var pushSyncInFlight = false;
+  var pushConfigCache = null;
 
   function inStandaloneMode() {
     try {
@@ -53,6 +60,145 @@
     } catch (e) {
       return;
     }
+  }
+
+  function urlBase64ToUint8Array(base64String) {
+    var padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+    var base64 = (base64String + padding).replace(/\-/g, '+').replace(/_/g, '/');
+    var rawData = window.atob(base64);
+    var outputArray = new Uint8Array(rawData.length);
+    for (var i = 0; i < rawData.length; ++i) {
+      outputArray[i] = rawData.charCodeAt(i);
+    }
+    return outputArray;
+  }
+
+  function postJson(url, payload) {
+    return fetch(url, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify(payload || {})
+    });
+  }
+
+  function fetchPushConfig() {
+    if (pushConfigCache) {
+      return Promise.resolve(pushConfigCache);
+    }
+
+    var url = pushConfigEndpoint + '?app_id=' + encodeURIComponent(appId);
+    return fetch(url, {
+      method: 'GET',
+      credentials: 'same-origin',
+      headers: {
+        'Accept': 'application/json'
+      },
+      cache: 'no-store'
+    }).then(function (response) {
+      if (!response.ok) {
+        throw new Error('push_config_failed');
+      }
+      return response.json();
+    }).then(function (payload) {
+      pushConfigCache = payload || {};
+      return pushConfigCache;
+    });
+  }
+
+  function unsubscribePushEndpoint(endpoint) {
+    if (String(endpoint || '') === '') {
+      return Promise.resolve(null);
+    }
+    return postJson(pushUnsubscribeEndpoint, {
+      app_id: appId,
+      endpoint: String(endpoint)
+    }).catch(function () {
+      return null;
+    });
+  }
+
+  function syncPushSubscription() {
+    if (!pushEnabled || userId <= 0 || pushSyncInFlight) {
+      return;
+    }
+    if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window)) {
+      return;
+    }
+    if (Notification.permission === 'denied') {
+      return;
+    }
+
+    pushSyncInFlight = true;
+    Promise.all([
+      navigator.serviceWorker.ready,
+      fetchPushConfig()
+    ]).then(function (results) {
+      var registration = results[0];
+      var pushCfg = results[1] || {};
+      var enabled = !!(pushCfg.enabled && pushCfg.configured);
+      var publicKey = String(pushCfg.public_key || '').trim();
+      if (!enabled || publicKey === '') {
+        return registration.pushManager.getSubscription().then(function (existing) {
+          if (!existing) {
+            return null;
+          }
+          var endpoint = String((existing.toJSON && existing.toJSON().endpoint) || '');
+          return existing.unsubscribe().catch(function () { return false; }).then(function () {
+            return unsubscribePushEndpoint(endpoint);
+          });
+        });
+      }
+
+      return registration.pushManager.getSubscription().then(function (existing) {
+        if (existing) {
+          return existing;
+        }
+        if (Notification.permission !== 'granted') {
+          return null;
+        }
+        return registration.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: urlBase64ToUint8Array(publicKey)
+        });
+      }).then(function (subscription) {
+        if (!subscription || typeof subscription.toJSON !== 'function') {
+          return null;
+        }
+        var json = subscription.toJSON();
+        if (!json || !json.endpoint) {
+          return null;
+        }
+
+        var lastEndpoint = '';
+        try {
+          lastEndpoint = String(window.localStorage.getItem(lastPushEndpointKey) || '');
+        } catch (e) {
+          lastEndpoint = '';
+        }
+        if (lastEndpoint === String(json.endpoint)) {
+          return null;
+        }
+
+        return postJson(pushSubscribeEndpoint, {
+          app_id: appId,
+          subscription: json
+        }).then(function (response) {
+          if (!response.ok) {
+            throw new Error('push_subscribe_failed');
+          }
+          setStoredValue(lastPushEndpointKey, String(json.endpoint));
+          return null;
+        });
+      });
+    }).catch(function () {
+      return null;
+    }).finally(function () {
+      pushSyncInFlight = false;
+    });
   }
 
   function updateNotificationBadges(total) {
@@ -239,6 +385,7 @@
           setStoredValue(alertsOptInKey, 1);
           button.style.display = 'none';
           notifyViaBrowser(appName, 'Instant alerts enabled.', '/notifications/', 'gigtune-alerts-enabled');
+          syncPushSubscription();
         } else {
           setStoredValue(alertsOptInKey, 0);
         }
@@ -339,6 +486,7 @@
     setupAlertsOptIn();
     maybeRenderInstallPrompt();
     window.setTimeout(maybeRenderInstallPrompt, 3000);
+    syncPushSubscription();
 
     if (notificationsEnabled && userId > 0) {
       pollNotifications();
@@ -346,6 +494,7 @@
       document.addEventListener('visibilitychange', function () {
         if (!document.hidden) {
           pollNotifications();
+          syncPushSubscription();
         }
       });
     }

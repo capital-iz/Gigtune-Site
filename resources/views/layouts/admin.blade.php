@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <meta name="theme-color" content="#0f172a">
     <title>{{ $title ?? 'GigTune Admin' }}</title>
-    <link rel="icon" type="image/png" sizes="420x420" href="/wp-content/themes/gigtune-canon/assets/img/gigtune-icon-bg.png">
-    <link rel="manifest" href="/admin-manifest.webmanifest">
-    <link rel="apple-touch-icon" href="/wp-content/themes/gigtune-canon/assets/img/gigtune-app-icon-192.png">
+    <link rel="icon" type="image/png" sizes="512x512" href="/wp-content/themes/gigtune-canon/assets/img/admin-app-icon-512.png">
+    <link rel="manifest" href="/admin-manifest.webmanifest?v=20260306a">
+    <link rel="apple-touch-icon" href="/wp-content/themes/gigtune-canon/assets/img/admin-app-icon-192.png">
     <link rel="stylesheet" href="/wp-content/themes/gigtune-canon/assets/css/tailwind.css">
     <link rel="stylesheet" href="/wp-content/themes/gigtune-canon/style.css">
     <style>

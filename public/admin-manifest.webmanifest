@@ -10,13 +10,19 @@
   "description": "GigTune administrator portal",
   "icons": [
     {
-      "src": "/wp-content/themes/gigtune-canon/assets/img/gigtune-icon-bg.png",
-      "sizes": "420x420",
+      "src": "/wp-content/themes/gigtune-canon/assets/img/admin-app-icon-192.png",
+      "sizes": "192x192",
       "type": "image/png",
       "purpose": "any"
     },
     {
-      "src": "/wp-content/themes/gigtune-canon/assets/img/gigtune-app-icon-512.png",
+      "src": "/wp-content/themes/gigtune-canon/assets/img/admin-app-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "/wp-content/themes/gigtune-canon/assets/img/admin-app-icon-512.png",
       "sizes": "512x512",
       "type": "image/png",
       "purpose": "maskable"

@@ -1842,58 +1842,36 @@ class AdminPortalController extends Controller
             return [];
         }
 
-        $db = $this->wordpressDb();
-        $prefix = $this->tablePrefix();
-        $posts = $prefix . 'posts';
-        $postmeta = $prefix . 'postmeta';
-
-        $rows = $db->table($posts . ' as p')
-            ->select(['p.ID', 'p.post_title', 'p.post_date'])
-            ->where('p.post_type', 'gigtune_notification')
-            ->whereExists(function ($query) use ($postmeta, $adminUserId): void {
-                $query->selectRaw('1')
-                    ->from($postmeta . ' as pm')
-                    ->whereColumn('pm.post_id', 'p.ID')
-                    ->whereIn('pm.meta_key', ['gigtune_notification_recipient_user_id', 'gigtune_notification_user_id', 'recipient_user_id'])
-                    ->where('pm.meta_value', (string) $adminUserId);
-            })
-            ->orderByDesc('p.ID')
-            ->limit(max(1, min(30, $limit)))
-            ->get();
-
-        if ($rows->isEmpty()) {
+        $perPage = max(1, min(30, $limit));
+        try {
+            $result = $this->notifications->list($adminUserId, $adminUserId, true, [
+                'page' => 1,
+                'per_page' => $perPage,
+                'only_unread' => true,
+            ]);
+        } catch (\Throwable) {
             return [];
         }
 
-        $ids = [];
-        foreach ($rows as $row) {
-            $ids[] = (int) $row->ID;
+        $itemsRaw = is_array($result['items'] ?? null) ? $result['items'] : [];
+        if ($itemsRaw === []) {
+            return [];
         }
-        $meta = $this->postMetaMap($ids, [
-            'gigtune_notification_message',
-            'message',
-            'gigtune_notification_object_type',
-            'object_type',
-            'gigtune_notification_object_id',
-            'object_id',
-            'gigtune_notification_is_read',
-            'is_read',
-            'gigtune_notification_created_at',
-            'created_at',
-        ]);
 
         $items = [];
-        foreach ($rows as $row) {
-            $id = (int) $row->ID;
-            $m = $meta[$id] ?? [];
-            $message = trim((string) ($m['gigtune_notification_message'] ?? $m['message'] ?? $row->post_title ?? ''));
-            $objectType = trim((string) ($m['gigtune_notification_object_type'] ?? $m['object_type'] ?? ''));
-            $objectId = (int) ($m['gigtune_notification_object_id'] ?? $m['object_id'] ?? 0);
-            $createdAt = (int) ($m['gigtune_notification_created_at'] ?? $m['created_at'] ?? 0);
-            if ($createdAt <= 0) {
-                $createdAt = strtotime((string) ($row->post_date ?? '')) ?: 0;
+        foreach ($itemsRaw as $item) {
+            if (!is_array($item)) {
+                continue;
             }
-            $isRead = in_array((string) ($m['gigtune_notification_is_read'] ?? $m['is_read'] ?? '0'), ['1', 'true', 'yes'], true);
+            $id = (int) ($item['id'] ?? 0);
+            if ($id <= 0) {
+                continue;
+            }
+            $message = trim((string) ($item['message'] ?? $item['title'] ?? 'Notification'));
+            $objectType = trim((string) ($item['object_type'] ?? ''));
+            $objectId = (int) ($item['object_id'] ?? 0);
+            $createdAt = (int) ($item['created_at'] ?? 0);
+            $isRead = (bool) ($item['is_read'] ?? false);
 
             $openUrl = '/notifications/?notification_id=' . $id;
             if ($objectType === 'booking' && $objectId > 0) {

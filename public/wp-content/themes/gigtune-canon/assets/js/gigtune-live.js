@@ -400,6 +400,14 @@
     qsa('.gt-live-notification-label').forEach(function (node) {
       node.textContent = count > 0 ? ('Notifications (' + count + ')') : 'Notifications';
     });
+
+    var hasUnread = count > 0;
+    qsa('.gt-live-mobile-bell-idle').forEach(function (node) {
+      node.classList.toggle('hidden', hasUnread);
+    });
+    qsa('.gt-live-mobile-bell-unread').forEach(function (node) {
+      node.classList.toggle('hidden', !hasUnread);
+    });
   }
 
   function ensureFloatingAction(id, label, className) {

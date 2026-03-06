@@ -1,4 +1,4 @@
-﻿const GT_STATIC_CACHE = 'gigtune-static-v2';
+const GT_STATIC_CACHE = 'gigtune-static-v4';
 
 self.addEventListener('install', (event) => {
   event.waitUntil(self.skipWaiting());
@@ -17,6 +17,7 @@ function isDynamicPath(pathname) {
     '/wp-admin',
     '/wp-login.php',
     '/wp-json',
+    '/app',
     '/artist-dashboard',
     '/client-dashboard',
     '/admin-dashboard',

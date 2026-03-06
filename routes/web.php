@@ -149,6 +149,7 @@ Route::match(['GET', 'POST'], '/admin-ajax.php', [LegacyWordPressPathController:
 Route::match(['GET', 'POST'], '/wp-admin/admin-ajax.php', [LegacyWordPressPathController::class, 'adminAjax'])
     ->withoutMiddleware([ValidateCsrfToken::class]);
 Route::get('/favicon.ico', fn () => redirect('/wp-content/themes/gigtune-canon/assets/img/gigtune-icon-bg.png', 302));
+Route::get('/app', [SitePageController::class, 'appEntry']);
 
 Route::get('/', function (Request $request, SitePageController $controller) {
     if (str_starts_with(strtolower((string) $request->getHost()), 'admin.')) {

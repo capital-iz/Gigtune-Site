@@ -2,7 +2,7 @@
   "id": "/app",
   "name": "GigTune",
   "short_name": "GigTune",
-  "start_url": "/",
+  "start_url": "/app?source=pwa",
   "scope": "/",
   "display": "standalone",
   "background_color": "#020617",

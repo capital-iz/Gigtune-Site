@@ -31,6 +31,28 @@ class SitePageController extends Controller
         return $this->renderPath($request, (string) $path);
     }
 
+    public function appEntry(Request $request): RedirectResponse
+    {
+        $currentUser = $this->resolveCurrentUser($request);
+        if (!is_array($currentUser)) {
+            return redirect('/sign-in/?app=gigtune-main', 302);
+        }
+
+        if ($this->isAdminLikeUser($currentUser)) {
+            return redirect('/admin-dashboard/?app=gigtune-admin', 302);
+        }
+
+        $dashboardSlug = $this->homeDashboardSlugForUser($currentUser);
+        if ($dashboardSlug === 'artist-dashboard') {
+            return redirect('/artist-dashboard/?app=gigtune-main', 302);
+        }
+        if ($dashboardSlug === 'client-dashboard') {
+            return redirect('/client-dashboard/?app=gigtune-main', 302);
+        }
+
+        return redirect('/?app=gigtune-main', 302);
+    }
+
     private function renderPath(Request $request, string $path): Response|RedirectResponse
     {
         $normalizedPath = trim($path, '/');

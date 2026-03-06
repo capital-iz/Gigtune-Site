@@ -14,6 +14,8 @@
   var pushSubscribeEndpoint = String(cfg.pushSubscribeEndpoint || '/wp-json/gigtune/v1/push/subscribe');
   var pushUnsubscribeEndpoint = String(cfg.pushUnsubscribeEndpoint || '/wp-json/gigtune/v1/push/unsubscribe');
   var pollEndpoint = String(cfg.pollEndpoint || '/wp-json/gigtune/v1/notifications?per_page=12&page=1&only_unread=1&include_archived=0');
+  var mobileBellIconIdle = String(cfg.mobileBellIconIdle || '/wp-content/themes/gigtune-canon/assets/img/notification-bell-idle.png');
+  var mobileBellIconUnread = String(cfg.mobileBellIconUnread || '/wp-content/themes/gigtune-canon/assets/img/notification-bell-unread.png');
   var pollIntervalMs = Number(cfg.pollIntervalMs || 20000);
   var storagePrefix = 'gigtune.live.' + appId + '.';
   var installDismissKey = storagePrefix + 'install.dismissed';
@@ -422,6 +424,11 @@
       fab.style.boxShadow = hasUnread
         ? '0 12px 30px rgba(37, 99, 235, 0.55)'
         : '0 10px 26px rgba(2, 6, 23, 0.45)';
+      var logo = fab.querySelector('.gt-live-mobile-notification-logo');
+      if (logo) {
+        logo.src = hasUnread ? mobileBellIconUnread : mobileBellIconIdle;
+        logo.alt = hasUnread ? 'Unread notifications' : 'Notifications';
+      }
     }
   }
 
@@ -467,14 +474,13 @@
     link.style.textDecoration = 'none';
 
     var logo = document.createElement('img');
-    logo.src = '/wp-content/themes/gigtune-canon/assets/img/gigtune-icon-bg.png';
-    logo.alt = 'GigTune notifications';
+    logo.src = mobileBellIconIdle;
+    logo.alt = 'Notifications';
     logo.className = 'gt-live-mobile-notification-logo';
-    logo.style.width = '30px';
-    logo.style.height = '30px';
-    logo.style.objectFit = 'cover';
-    logo.style.borderRadius = '9999px';
-    logo.style.border = '1px solid rgba(255, 255, 255, 0.35)';
+    logo.style.width = '28px';
+    logo.style.height = '28px';
+    logo.style.objectFit = 'contain';
+    logo.style.border = '0';
 
     var count = document.createElement('span');
     count.className = 'gt-live-notification-count hidden';

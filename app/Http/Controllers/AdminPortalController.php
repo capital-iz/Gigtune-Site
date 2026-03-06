@@ -1746,9 +1746,12 @@ class AdminPortalController extends Controller
         $posts = $prefix . 'posts';
         $postmeta = $prefix . 'postmeta';
         $users = $prefix . 'users';
+        $applyOverviewReset = $this->withDisplayResetScope('overview');
+        $overviewBookingsBase = $db->table($posts . ' as p')
+            ->where('p.post_type', 'gigtune_booking');
+        $applyOverviewReset($overviewBookingsBase);
 
-        $pendingPayouts = (int) $db->table($posts . ' as p')
-            ->where('p.post_type', 'gigtune_booking')
+        $pendingPayouts = (int) (clone $overviewBookingsBase)
             ->whereExists(function ($query) use ($postmeta): void {
                 $query->selectRaw('1')
                     ->from($postmeta . ' as pm')
@@ -1776,7 +1779,7 @@ class AdminPortalController extends Controller
             })
             ->count('p.ID');
 
-        $bookingsTotal = (int) $db->table($posts)->where('post_type', 'gigtune_booking')->count('ID');
+        $bookingsTotal = (int) (clone $overviewBookingsBase)->count('p.ID');
 
         return [
             'users_total' => (int) $db->table($users)->count('ID'),
@@ -1786,8 +1789,7 @@ class AdminPortalController extends Controller
             'kyc_total' => $pendingKyc,
             'pending_payouts' => $pendingPayouts,
             'psa_total' => (int) $db->table($posts)->where('post_type', 'gigtune_psa')->count('ID'),
-            'open_disputes' => (int) $db->table($posts . ' as p')
-                ->where('p.post_type', 'gigtune_booking')
+            'open_disputes' => (int) (clone $overviewBookingsBase)
                 ->whereExists(function ($query) use ($postmeta): void {
                     $query->selectRaw('1')
                         ->from($postmeta . ' as pm')
@@ -1796,8 +1798,7 @@ class AdminPortalController extends Controller
                         ->where('pm.meta_value', '1');
                 })
                 ->count('p.ID'),
-            'awaiting_payment_total' => (int) $db->table($posts . ' as p')
-                ->where('p.post_type', 'gigtune_booking')
+            'awaiting_payment_total' => (int) (clone $overviewBookingsBase)
                 ->whereExists(function ($query) use ($postmeta): void {
                     $query->selectRaw('1')
                         ->from($postmeta . ' as pm')

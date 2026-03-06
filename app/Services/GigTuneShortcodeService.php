@@ -6242,6 +6242,9 @@ HTML;
         if ($bookingId <= 0 || $amountCents <= 0) {
             return ['error' => 'Invalid payment request.'];
         }
+        if ($amountCents < 200) {
+            return ['error' => 'Minimum card payment is R2.00. Current total is R' . number_format($amountCents / 100, 2) . '.'];
+        }
 
         $secretKey = $this->yocoSecretKey();
         if ($secretKey === '') {
@@ -6276,9 +6279,9 @@ HTML;
             $prefix = $code > 0 ? ('HTTP ' . $code . ': ') : '';
             $apiMessage = '';
             if (is_array($body)) {
-                $apiMessage = trim((string) ($body['message'] ?? $body['error'] ?? ''));
+                $apiMessage = trim((string) ($body['message'] ?? $body['error'] ?? $body['description'] ?? ''));
                 if ($apiMessage === '' && isset($body['errors']) && is_array($body['errors']) && isset($body['errors'][0]) && is_array($body['errors'][0])) {
-                    $apiMessage = trim((string) ($body['errors'][0]['message'] ?? ''));
+                    $apiMessage = trim((string) ($body['errors'][0]['message'] ?? $body['errors'][0]['description'] ?? ''));
                 }
             }
             if ($apiMessage === '') {

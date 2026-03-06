@@ -6,7 +6,7 @@
     <meta name="theme-color" content="#0f172a">
     <title>{{ $title ?? 'GigTune Admin' }}</title>
     <link rel="icon" type="image/png" sizes="512x512" href="/wp-content/themes/gigtune-canon/assets/img/admin-app-icon-512.png">
-    <link rel="manifest" href="/admin-manifest.webmanifest?v=20260306a">
+    <link rel="manifest" href="/admin-manifest.webmanifest?v=20260306b">
     <link rel="apple-touch-icon" href="/wp-content/themes/gigtune-canon/assets/img/admin-app-icon-192.png">
     <link rel="stylesheet" href="/wp-content/themes/gigtune-canon/assets/css/tailwind.css">
     <link rel="stylesheet" href="/wp-content/themes/gigtune-canon/style.css">
@@ -62,7 +62,7 @@
         (function () {
             if (!('serviceWorker' in navigator)) return;
             window.addEventListener('load', function () {
-                navigator.serviceWorker.register('/service-worker.js', { scope: '/admin-dashboard/' }).catch(function () { return null; });
+                navigator.serviceWorker.register('/service-worker.js', { scope: '/' }).catch(function () { return null; });
             });
         })();
     </script>
@@ -84,6 +84,6 @@
             pollIntervalMs: 20000
         });
     </script>
-    <script src="/wp-content/themes/gigtune-canon/assets/js/gigtune-live.js?v=20260306e"></script>
+    <script src="/wp-content/themes/gigtune-canon/assets/js/gigtune-live.js?v=20260306f"></script>
 </body>
 </html>

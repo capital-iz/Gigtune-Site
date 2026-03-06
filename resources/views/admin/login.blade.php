@@ -3,7 +3,11 @@
 <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Secret Admin Login</title>
+    <meta name="theme-color" content="#0f172a">
+    <title>GigTune Admin Sign-in</title>
+    <link rel="icon" type="image/png" sizes="512x512" href="/wp-content/themes/gigtune-canon/assets/img/admin-app-icon-512.png">
+    <link rel="manifest" href="/admin-manifest.webmanifest?v=20260306b">
+    <link rel="apple-touch-icon" href="/wp-content/themes/gigtune-canon/assets/img/admin-app-icon-192.png">
     <link rel="stylesheet" href="/wp-content/themes/gigtune-canon/assets/css/tailwind.css">
     <link rel="stylesheet" href="/wp-content/themes/gigtune-canon/style.css">
 </head>
@@ -58,5 +62,28 @@
             </div>
         </div>
     </main>
+    <script>
+        (function () {
+            if (!('serviceWorker' in navigator)) return;
+            window.addEventListener('load', function () {
+                navigator.serviceWorker.register('/service-worker.js', { scope: '/' }).catch(function () { return null; });
+            });
+        })();
+    </script>
+    <script>
+        window.GigTuneLiveConfig = Object.assign({}, window.GigTuneLiveConfig || {}, {
+            appId: 'gigtune-admin',
+            appName: 'GigTune Admin',
+            installEnabled: true,
+            installPromptLabel: 'Install GigTune Admin App',
+            alertsToggleLabel: 'Enable Admin Alerts',
+            notificationsEnabled: false,
+            userId: 0,
+            isAdmin: true,
+            pushEnabled: false,
+            pollIntervalMs: 20000
+        });
+    </script>
+    <script src="/wp-content/themes/gigtune-canon/assets/js/gigtune-live.js?v=20260306f"></script>
 </body>
 </html>

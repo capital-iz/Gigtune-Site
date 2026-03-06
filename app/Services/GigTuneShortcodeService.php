@@ -4270,8 +4270,8 @@ class GigTuneShortcodeService
         $html .= '</div>';
         $html .= '</div>';
         $html .= '<div class="rounded-2xl border border-white/10 bg-white/5 p-6">';
-        $html .= '<h3 class="gt-dashboard-mobile-center-title text-lg font-semibold text-white">' . e($title) . '</h3>';
-        $html .= '<p class="gt-dashboard-mobile-center-subtitle mt-2 text-sm text-slate-300">Manage bookings, messages, notifications, and account compliance.</p>';
+        $html .= '<h3 class="text-lg font-semibold text-white">' . e($title) . '</h3>';
+        $html .= '<p class="mt-2 text-sm text-slate-300">Manage bookings, messages, notifications, and account compliance.</p>';
         $profileCta = $publicProfileUrl !== ''
             ? '<a href="' . e($publicProfileUrl) . '" class="inline-flex items-center justify-center rounded-lg px-4 py-2 text-sm font-semibold text-white bg-white/10 hover:bg-white/15">View Public Profile</a>'
             : '';
@@ -5249,6 +5249,7 @@ class GigTuneShortcodeService
                                 'post_modified' => now()->format('Y-m-d H:i:s'),
                                 'post_modified_gmt' => now('UTC')->format('Y-m-d H:i:s'),
                             ]);
+                        $this->upsertPostMeta($psaId, 'gigtune_psa_status', 'deleted');
                         $this->upsertPostMeta($psaId, 'gigtune_psa_deleted_at', (string) now()->timestamp);
                         $statusMessage = 'Post deleted.';
                     }
@@ -5285,6 +5286,7 @@ class GigTuneShortcodeService
                             'post_modified' => now()->format('Y-m-d H:i:s'),
                             'post_modified_gmt' => now('UTC')->format('Y-m-d H:i:s'),
                         ]);
+                    $this->upsertPostMeta($psaId, 'gigtune_psa_status', 'deleted');
                     $this->upsertPostMeta($psaId, 'gigtune_psa_deleted_by_admin', '1');
                     $this->upsertPostMeta($psaId, 'gigtune_psa_deleted_at', (string) now()->timestamp);
                     $statusMessage = 'Post deleted.';
@@ -5537,6 +5539,9 @@ class GigTuneShortcodeService
         }
         $meta = $this->postMetaMap($ids, [
             'gigtune_psa_status',
+            'gigtune_psa_deleted_at',
+            'gigtune_psa_deleted_by_admin',
+            'gigtune_psa_hidden_by_admin',
             'gigtune_psa_budget_min',
             'gigtune_psa_budget_max',
             'gigtune_psa_location_text',
@@ -5553,6 +5558,15 @@ class GigTuneShortcodeService
             $id = (int) $row->ID;
             $m = $meta[$id] ?? [];
             $rowStatus = strtolower(trim((string) ($m['gigtune_psa_status'] ?? 'open')));
+            $deletedAt = (int) ($m['gigtune_psa_deleted_at'] ?? 0);
+            $deletedByAdmin = (string) ($m['gigtune_psa_deleted_by_admin'] ?? '') === '1';
+            $deletedByStatus = in_array($rowStatus, ['deleted', 'trash', 'removed'], true);
+            if ($deletedAt > 0 || $deletedByAdmin || $deletedByStatus) {
+                continue;
+            }
+            if ((string) ($m['gigtune_psa_hidden_by_admin'] ?? '') === '1' || $rowStatus === 'hidden_by_admin') {
+                $rowStatus = 'hidden_by_admin';
+            }
             if ($status !== null && $status !== '' && $rowStatus !== strtolower($status)) {
                 continue;
             }

@@ -10,6 +10,7 @@ use App\Http\Controllers\Api\GigTunePushController;
 use App\Http\Controllers\AdminPortalController;
 use App\Http\Controllers\LegacyWordPressPathController;
 use App\Http\Controllers\SitePageController;
+use Illuminate\Http\Request;
 use Illuminate\Foundation\Http\Middleware\ValidateCsrfToken;
 use Illuminate\Support\Facades\Route;
 
@@ -146,7 +147,24 @@ Route::match(['GET', 'POST'], '/wp-admin/admin-ajax.php', [LegacyWordPressPathCo
     ->withoutMiddleware([ValidateCsrfToken::class]);
 Route::get('/favicon.ico', fn () => redirect('/wp-content/themes/gigtune-canon/assets/img/gigtune-icon-bg.png', 302));
 
-Route::get('/', [SitePageController::class, 'home']);
-Route::any('/{path?}', [SitePageController::class, 'page'])
+Route::get('/', function (Request $request, SitePageController $controller) {
+    if (str_starts_with(strtolower((string) $request->getHost()), 'admin.')) {
+        return redirect('/admin-dashboard', 302);
+    }
+    return $controller->home($request);
+});
+Route::any('/{path?}', function (Request $request, SitePageController $controller, ?string $path = null) {
+    $host = strtolower((string) $request->getHost());
+    if (str_starts_with($host, 'admin.')) {
+        $normalized = trim((string) $path, '/');
+        $isAdminPath = $normalized === 'secret-admin-login-security'
+            || str_starts_with($normalized, 'admin')
+            || str_starts_with($normalized, 'gts-admin-users');
+        if (!$isAdminPath) {
+            return redirect('/admin-dashboard', 302);
+        }
+    }
+    return $controller->page($request, $path);
+})
     ->where('path', '.*')
     ->withoutMiddleware([ValidateCsrfToken::class]);

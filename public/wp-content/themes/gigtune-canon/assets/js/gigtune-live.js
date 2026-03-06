@@ -416,12 +416,13 @@
     });
 
     var hasUnread = count > 0;
-    qsa('.gt-live-mobile-bell-idle').forEach(function (node) {
-      node.classList.toggle('hidden', hasUnread);
-    });
-    qsa('.gt-live-mobile-bell-unread').forEach(function (node) {
-      node.classList.toggle('hidden', !hasUnread);
-    });
+    var fab = qs('#gtMobileNotificationFab');
+    if (fab) {
+      fab.classList.toggle('gt-mobile-notification-unread', hasUnread);
+      fab.style.boxShadow = hasUnread
+        ? '0 12px 30px rgba(37, 99, 235, 0.55)'
+        : '0 10px 26px rgba(2, 6, 23, 0.45)';
+    }
   }
 
   function ensureFloatingAction(id, label, className) {
@@ -459,27 +460,21 @@
     link.style.alignItems = 'center';
     link.style.justifyContent = 'center';
     link.style.zIndex = '95';
-    link.style.background = 'rgba(15, 23, 42, 0.92)';
+    link.style.background = 'linear-gradient(160deg, rgba(15, 23, 42, 0.95), rgba(30, 41, 59, 0.92))';
     link.style.border = '1px solid rgba(148, 163, 184, 0.35)';
     link.style.backdropFilter = 'blur(8px)';
     link.style.boxShadow = '0 10px 26px rgba(2, 6, 23, 0.45)';
     link.style.textDecoration = 'none';
 
-    var idle = document.createElement('img');
-    idle.src = '/wp-content/themes/gigtune-canon/assets/img/notification-bell-idle.png';
-    idle.alt = '';
-    idle.className = 'gt-live-mobile-bell-idle';
-    idle.style.width = '24px';
-    idle.style.height = '24px';
-    idle.style.objectFit = 'contain';
-
-    var unread = document.createElement('img');
-    unread.src = '/wp-content/themes/gigtune-canon/assets/img/notification-bell-unread.png';
-    unread.alt = '';
-    unread.className = 'gt-live-mobile-bell-unread hidden';
-    unread.style.width = '24px';
-    unread.style.height = '24px';
-    unread.style.objectFit = 'contain';
+    var logo = document.createElement('img');
+    logo.src = '/wp-content/themes/gigtune-canon/assets/img/gigtune-icon-bg.png';
+    logo.alt = 'GigTune notifications';
+    logo.className = 'gt-live-mobile-notification-logo';
+    logo.style.width = '30px';
+    logo.style.height = '30px';
+    logo.style.objectFit = 'cover';
+    logo.style.borderRadius = '9999px';
+    logo.style.border = '1px solid rgba(255, 255, 255, 0.35)';
 
     var count = document.createElement('span');
     count.className = 'gt-live-notification-count hidden';
@@ -500,8 +495,7 @@
     count.style.fontWeight = '700';
     count.style.lineHeight = '1';
 
-    link.appendChild(idle);
-    link.appendChild(unread);
+    link.appendChild(logo);
     link.appendChild(count);
     document.body.appendChild(link);
     return link;

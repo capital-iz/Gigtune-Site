@@ -572,10 +572,6 @@ body.home .grid.gap-4.sm\:grid-cols-2.lg\:grid-cols-3 .text-white.font-semibold.
     text-align: left !important;
   }
 
-  body.gt-mobile-app main .gt-dashboard-mobile-center-title,
-  body.gt-mobile-app main .gt-dashboard-mobile-center-subtitle {
-    text-align: center !important;
-  }
 }
 
 /* Home hero image paint tuning for mobile LCP. */

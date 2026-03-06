@@ -376,16 +376,24 @@ class GigTuneCoreParityController extends Controller
         $meta = $this->postMetaMap($ids, [
             'gigtune_psa_budget_min', 'gigtune_psa_budget_max', 'gigtune_psa_location_text',
             'gigtune_psa_status', 'gigtune_psa_client_user_id', 'gigtune_psa_start_date', 'gigtune_psa_end_date',
+            'gigtune_psa_deleted_at', 'gigtune_psa_deleted_by_admin',
         ]);
 
         $items = [];
         foreach ($rows as $row) {
             $id = (int) $row->ID;
+            $itemMeta = $meta[$id] ?? [];
+            $status = strtolower(trim((string) ($itemMeta['gigtune_psa_status'] ?? 'open')));
+            $deletedAt = (int) ($itemMeta['gigtune_psa_deleted_at'] ?? 0);
+            $deletedByAdmin = (string) ($itemMeta['gigtune_psa_deleted_by_admin'] ?? '') === '1';
+            if ($deletedAt > 0 || $deletedByAdmin || in_array($status, ['deleted', 'trash', 'removed'], true)) {
+                continue;
+            }
             $items[] = [
                 'id' => $id,
                 'title' => (string) $row->post_title,
                 'date' => (string) $row->post_date,
-                'meta' => $meta[$id] ?? [],
+                'meta' => $itemMeta,
             ];
         }
 
@@ -410,7 +418,14 @@ class GigTuneCoreParityController extends Controller
         $meta = $this->postMetaMap([$id], [
             'gigtune_psa_budget_min', 'gigtune_psa_budget_max', 'gigtune_psa_location_text',
             'gigtune_psa_status', 'gigtune_psa_client_user_id', 'gigtune_psa_start_date', 'gigtune_psa_end_date',
+            'gigtune_psa_deleted_at', 'gigtune_psa_deleted_by_admin',
         ])[$id] ?? [];
+        $status = strtolower(trim((string) ($meta['gigtune_psa_status'] ?? 'open')));
+        $deletedAt = (int) ($meta['gigtune_psa_deleted_at'] ?? 0);
+        $deletedByAdmin = (string) ($meta['gigtune_psa_deleted_by_admin'] ?? '') === '1';
+        if ($deletedAt > 0 || $deletedByAdmin || in_array($status, ['deleted', 'trash', 'removed'], true)) {
+            return response()->json(['code' => 'gigtune_not_found', 'message' => 'PSA not found.'], 404);
+        }
 
         return response()->json(['id' => (int) $row->ID, 'title' => (string) $row->post_title, 'date' => (string) $row->post_date, 'meta' => $meta]);
     }

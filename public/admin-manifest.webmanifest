@@ -3,7 +3,7 @@
   "name": "GigTune Admin",
   "short_name": "GT Admin",
   "start_url": "/admin-dashboard/?app=gigtune-admin",
-  "scope": "/admin-dashboard/",
+  "scope": "/",
   "display": "standalone",
   "background_color": "#020617",
   "theme_color": "#0f172a",
